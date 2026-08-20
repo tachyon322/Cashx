@@ -1,0 +1,2159 @@
+openapi: 3.1.0
+info:
+  title: CashX API
+  version: 1.0.0
+  description: Partner platform API. All money in kopecks (int64), rates in basis points.
+servers:
+  - url: /api/v1
+paths:
+  /auth/register:
+    post:
+      operationId: authRegister
+      summary: Register a partner account (pending approval)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/UserMe'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /auth/me:
+    get:
+      operationId: authMe
+      summary: Current user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/UserMe'
+        '401':
+          $ref: '#/components/responses/Error'
+  /auth/password-reset/request:
+    post:
+      operationId: authPasswordResetRequest
+      summary: Request password reset (always 202; token returned in dev)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reset_token:
+                    type: string
+                    nullable: true
+  /auth/password-reset/confirm:
+    post:
+      operationId: authPasswordResetConfirm
+      summary: Confirm password reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        '204':
+          description: No content
+        '400':
+          $ref: '#/components/responses/Error'
+  /cabinet/summary:
+    get:
+      operationId: cabinetSummary
+      summary: Partner dashboard summary
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+  /cabinet/offers:
+    get:
+      operationId: cabinetOffersList
+      summary: Offer catalog with partner access state
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CabinetOffer'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+  /cabinet/offers/{offerId}/join:
+    post:
+      operationId: cabinetOfferJoin
+      summary: Join an active offer, creating a tracking link
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      responses:
+        '201':
+          description: Joined
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  offer_id:
+                    type: string
+                  rate_bps:
+                    type: integer
+                  tracking_url:
+                    type: string
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /cabinet/offers/{offerId}:
+    get:
+      operationId: cabinetOfferStats
+      summary: Offer statistics (joined offers only)
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfferStatsResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /cabinet/offers/{offerId}/sources:
+    get:
+      operationId: cabinetOfferSourcesList
+      summary: List traffic sources for a joined offer
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Source'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: cabinetOfferSourceCreate
+      summary: Create a traffic source for a joined offer
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /cabinet/offers/{offerId}/sources/{sourceId}:
+    patch:
+      operationId: cabinetOfferSourceUpdate
+      summary: Update a traffic source
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+        - $ref: '#/components/parameters/SourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: cabinetOfferSourceDelete
+      summary: Delete a traffic source (only if it has no clicks)
+      parameters:
+        - $ref: '#/components/parameters/OfferId'
+        - $ref: '#/components/parameters/SourceId'
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /cabinet/source-groups:
+    get:
+      operationId: cabinetSourceGroupsList
+      summary: List partner's source groups
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SourceGroup'
+        '401':
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: cabinetSourceGroupCreate
+      summary: Create a source group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceGroupInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /cabinet/source-groups/{groupId}:
+    patch:
+      operationId: cabinetSourceGroupUpdate
+      summary: Update a source group
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceGroupInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceGroup'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: cabinetSourceGroupDelete
+      summary: Delete an empty source group
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /cabinet/payouts/config:
+    get:
+      operationId: cabinetPayoutsConfig
+      summary: Payout configuration
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutRules'
+        '401':
+          $ref: '#/components/responses/Error'
+  /cabinet/payouts:
+    get:
+      operationId: cabinetPayoutsList
+      summary: Balance, withdrawal requests and ledger history
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance:
+                    $ref: '#/components/schemas/Balance'
+                  requests:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WithdrawalRequest'
+                  history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LedgerEntry'
+        '401':
+          $ref: '#/components/responses/Error'
+  /cabinet/payouts/requests:
+    post:
+      operationId: cabinetPayoutRequest
+      summary: Request a withdrawal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [method, amount_kopecks, requisites]
+              properties:
+                method:
+                  type: string
+                  enum: [usdt, sbp]
+                amount_kopecks:
+                  type: integer
+                  format: int64
+                requisites:
+                  type: string
+                bank:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithdrawalRequest'
+        '400':
+          $ref: '#/components/responses/Error'
+        '402':
+          $ref: '#/components/responses/Error'
+  /cabinet/payouts/requests/{id}/cancel:
+    post:
+      operationId: cabinetPayoutCancel
+      summary: Cancel own pending withdrawal request
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithdrawalRequest'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /cabinet/referrals:
+    get:
+      operationId: cabinetReferrals
+      summary: Referral program info
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReferralsResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+  /cabinet/notifications:
+    get:
+      operationId: cabinetNotificationsList
+      summary: Notifications with unread counter
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unread_count:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationItem'
+        '401':
+          $ref: '#/components/responses/Error'
+  /cabinet/notifications/read-all:
+    post:
+      operationId: cabinetNotificationsReadAll
+      summary: Mark all notifications read
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/Error'
+  /cabinet/notifications/{type}/{id}/read:
+    post:
+      operationId: cabinetNotificationRead
+      summary: Mark a single notification read
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [announcement, personal]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No content
+        '401':
+          $ref: '#/components/responses/Error'
+  /cabinet/profile:
+    put:
+      operationId: cabinetProfileUpdate
+      summary: Update own profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                telegram_user_id:
+                  type: integer
+                  format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/UserMe'
+        '401':
+          $ref: '#/components/responses/Error'
+
+  /admin/partners:
+    get:
+      operationId: adminPartnersList
+      summary: List partners
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, active, blocked]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminPartner'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: adminPartnerCreate
+      summary: Create a partner (active immediately)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                commission_bps:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  email:
+                    type: string
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/partners/{id}:
+    get:
+      operationId: adminPartnerGet
+      summary: Partner detail with balance, ledger, withdrawals, accesses
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPartnerDetail'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: adminPartnerUpdate
+      summary: Update partner (approve/block/rename)
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                is_approved:
+                  type: boolean
+                is_blocked:
+                  type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPartner'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/partners/{id}/rate:
+    post:
+      operationId: adminPartnerRate
+      summary: Set partner's personal rate for an offer
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [offer_id, rate_bps]
+              properties:
+                offer_id:
+                  type: string
+                rate_bps:
+                  type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  offer_id:
+                    type: string
+                  rate_bps:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /admin/projects:
+    get:
+      operationId: adminProjectsList
+      summary: List projects
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProjectCard'
+    post:
+      operationId: adminProjectCreate
+      summary: Create project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug, name, destination_url]
+              properties:
+                slug:
+                  type: string
+                name:
+                  type: string
+                description:
+                  type: string
+                destination_url:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectCard'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/projects/{id}:
+    patch:
+      operationId: adminProjectUpdate
+      summary: Update project
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                destination_url:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectCard'
+        '404':
+          $ref: '#/components/responses/Error'
+  /admin/offers:
+    get:
+      operationId: adminOffersList
+      summary: List offers
+      parameters:
+        - name: project_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OfferCard'
+    post:
+      operationId: adminOfferCreate
+      summary: Create offer (creates terms v1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, name, rate_bps]
+              properties:
+                project_id:
+                  type: string
+                name:
+                  type: string
+                category:
+                  type: string
+                description:
+                  type: string
+                destination_url:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, available, pending, coming_soon]
+                  default: pending
+                rate_bps:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfferCard'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/offers/{id}:
+    patch:
+      operationId: adminOfferUpdate
+      summary: Update offer card
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                category:
+                  type: string
+                description:
+                  type: string
+                destination_url:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, available, pending, coming_soon]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfferCard'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/offers/{id}/terms:
+    post:
+      operationId: adminOfferTerms
+      summary: Add new offer terms version (rate change)
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rate_bps]
+              properties:
+                rate_bps:
+                  type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: integer
+                  rate_bps:
+                    type: integer
+                  effective_from:
+                    type: string
+                    format: date-time
+        '404':
+          $ref: '#/components/responses/Error'
+  /admin/integration-keys:
+    get:
+      operationId: adminIntegrationKeysList
+      summary: List integration keys (no secrets)
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IntegrationKey'
+    post:
+      operationId: adminIntegrationKeyCreate
+      summary: Create integration key (secret shown once)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationKeySecret'
+        '404':
+          $ref: '#/components/responses/Error'
+  /admin/integration-keys/{keyId}/rotate:
+    post:
+      operationId: adminIntegrationKeyRotate
+      summary: Rotate integration key (secret shown once)
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationKeySecret'
+        '404':
+          $ref: '#/components/responses/Error'
+  /admin/integration-keys/{keyId}/deactivate:
+    post:
+      operationId: adminIntegrationKeyDeactivate
+      summary: Deactivate integration key
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No content
+        '404':
+          $ref: '#/components/responses/Error'
+  /admin/withdrawals:
+    get:
+      operationId: adminWithdrawalsList
+      summary: List withdrawal requests
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: partner_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminWithdrawal'
+  /admin/withdrawals/{id}/decide:
+    post:
+      operationId: adminWithdrawalDecide
+      summary: Approve or reject a pending withdrawal
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [approved, rejected]
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithdrawalRequest'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/withdrawals/{id}/pay:
+    post:
+      operationId: adminWithdrawalPay
+      summary: Mark approved withdrawal as paid
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                external_tx_id:
+                  type: string
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WithdrawalRequest'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/finance/rules:
+    get:
+      operationId: adminFinanceRulesGet
+      summary: Payout rules
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutRules'
+    put:
+      operationId: adminFinanceRulesPut
+      summary: Update payout rules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_withdraw_kopecks:
+                  type: integer
+                  format: int64
+                usdt_rate:
+                  type: number
+                sbp_fee_flat_kopecks:
+                  type: integer
+                  format: int64
+                sbp_fee_percent_bps:
+                  type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutRules'
+  /admin/finance/ledger:
+    get:
+      operationId: adminFinanceLedger
+      summary: Wallet ledger (all partners)
+      parameters:
+        - name: partner_id
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminLedgerEntry'
+  /admin/finance/earnings:
+    get:
+      operationId: adminFinanceEarnings
+      summary: Commission earnings
+      parameters:
+        - name: partner_id
+          in: query
+          schema:
+            type: string
+        - name: offer_id
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminEarning'
+  /admin/announcements:
+    get:
+      operationId: adminAnnouncementsList
+      summary: List announcements (including deleted)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Announcement'
+    post:
+      operationId: adminAnnouncementCreate
+      summary: Create announcement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnnouncementInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+  /admin/announcements/{id}:
+    patch:
+      operationId: adminAnnouncementUpdate
+      summary: Update announcement (published included)
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnnouncementInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: adminAnnouncementDelete
+      summary: Soft-delete announcement
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: No content
+        '404':
+          $ref: '#/components/responses/Error'
+  /admin/platform/branding:
+    get:
+      operationId: adminBrandingGet
+      summary: Platform branding
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branding'
+    put:
+      operationId: adminBrandingPut
+      summary: Update platform branding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                telegram_url:
+                  type: string
+                avatar_media_id:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branding'
+  /admin/audit:
+    get:
+      operationId: adminAuditList
+      summary: Audit log
+      parameters:
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+        - name: entity_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEntry'
+
+  /integrations/events:
+    post:
+      operationId: integrationsEvent
+      summary: Ingest a signed project event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [accepted, duplicate, ignored]
+                  reason:
+                    type: string
+                    nullable: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    OfferId:
+      name: offerId
+      in: path
+      required: true
+      schema:
+        type: string
+    SourceId:
+      name: sourceId
+      in: path
+      required: true
+      schema:
+        type: string
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        referral_code:
+          type: string
+    UserMe:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [partner, staff]
+        is_approved:
+          type: boolean
+        is_blocked:
+          type: boolean
+        partner:
+          type: object
+          nullable: true
+          properties:
+            referral_code:
+              type: string
+            telegram_user_id:
+              type: integer
+              format: int64
+              nullable: true
+        staff:
+          type: object
+          nullable: true
+          properties:
+            roles:
+              type: array
+              items:
+                type: string
+    Balance:
+      type: object
+      properties:
+        available_kopecks:
+          type: integer
+          format: int64
+        reserved_kopecks:
+          type: integer
+          format: int64
+    DayStats:
+      type: object
+      properties:
+        date:
+          type: string
+        clicks:
+          type: integer
+        unique_clicks:
+          type: integer
+        registrations:
+          type: integer
+        first_payments:
+          type: integer
+        income_kopecks:
+          type: integer
+          format: int64
+    SummaryResponse:
+      type: object
+      properties:
+        balance:
+          $ref: '#/components/schemas/Balance'
+        income:
+          type: object
+          properties:
+            today_kopecks:
+              type: integer
+              format: int64
+            week_kopecks:
+              type: integer
+              format: int64
+            month_kopecks:
+              type: integer
+              format: int64
+            all_kopecks:
+              type: integer
+              format: int64
+        funnel:
+          type: object
+          properties:
+            clicks:
+              type: integer
+            unique_clicks:
+              type: integer
+            registrations:
+              type: integer
+            first_payments:
+              type: integer
+            income_kopecks:
+              type: integer
+              format: int64
+        chart:
+          type: array
+          items:
+            $ref: '#/components/schemas/DayStats'
+        active_offers:
+          type: array
+          items:
+            type: object
+            properties:
+              offer_id:
+                type: string
+              name:
+                type: string
+              rate_bps:
+                type: integer
+              tracking_url:
+                type: string
+              clicks:
+                type: integer
+              registrations:
+                type: integer
+              income_kopecks:
+                type: integer
+                format: int64
+        revshare_percent_bps:
+          type: integer
+        telegram:
+          type: object
+          properties:
+            connected:
+              type: boolean
+    CabinetOffer:
+      type: object
+      properties:
+        offer_id:
+          type: string
+        project_id:
+          type: string
+        project_name:
+          type: string
+        project_logo_url:
+          type: string
+          nullable: true
+        name:
+          type: string
+        category:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, available, pending, coming_soon]
+        my_rate_bps:
+          type: integer
+          nullable: true
+        epc:
+          type: number
+          nullable: true
+        cr:
+          type: number
+          nullable: true
+        my_tracking_url:
+          type: string
+          nullable: true
+    OfferAgg:
+      type: object
+      properties:
+        income_kopecks:
+          type: integer
+          format: int64
+        clicks:
+          type: integer
+        unique_clicks:
+          type: integer
+        registrations:
+          type: integer
+        first_payments:
+          type: integer
+    HistoryItem:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [click, registration, payment, earning, reversal]
+        amount_kopecks:
+          type: integer
+          format: int64
+          nullable: true
+        occurred_at:
+          type: string
+          format: date-time
+    OfferStatsResponse:
+      type: object
+      properties:
+        offer:
+          $ref: '#/components/schemas/OfferCard'
+        tracking_url:
+          type: string
+        summary:
+          type: object
+          properties:
+            today:
+              $ref: '#/components/schemas/OfferAgg'
+            week:
+              $ref: '#/components/schemas/OfferAgg'
+            month:
+              $ref: '#/components/schemas/OfferAgg'
+            all:
+              $ref: '#/components/schemas/OfferAgg'
+        chart:
+          type: array
+          items:
+            $ref: '#/components/schemas/DayStats'
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoryItem'
+    SourceTotals:
+      type: object
+      properties:
+        clicks:
+          type: integer
+          format: int64
+        unique_clicks:
+          type: integer
+          format: int64
+        registrations:
+          type: integer
+          format: int64
+        first_payments:
+          type: integer
+          format: int64
+        income_kopecks:
+          type: integer
+          format: int64
+    Source:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        comment:
+          type: string
+          nullable: true
+        group_id:
+          type: string
+          nullable: true
+        group_name:
+          type: string
+          nullable: true
+        is_default:
+          type: boolean
+        is_active:
+          type: boolean
+        url:
+          type: string
+        totals:
+          $ref: '#/components/schemas/SourceTotals'
+        totals_30d:
+          $ref: '#/components/schemas/SourceTotals'
+        created_at:
+          type: string
+          format: date-time
+    SourceInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        code:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        group_id:
+          type: string
+          nullable: true
+        is_default:
+          type: boolean
+    SourceUpdate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        code:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        group_id:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        is_default:
+          type: boolean
+    SourceGroup:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        comment:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SourceGroupInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        comment:
+          type: string
+          nullable: true
+    WithdrawalRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        partner_id:
+          type: string
+        amount_kopecks:
+          type: integer
+          format: int64
+        method:
+          type: string
+          enum: [usdt, sbp]
+        requisites:
+          type: string
+        bank:
+          type: string
+          nullable: true
+        fee_kopecks:
+          type: integer
+          format: int64
+        usdt_amount:
+          type: number
+          nullable: true
+        rate:
+          type: number
+          nullable: true
+        status:
+          type: string
+          enum: [pending, approved, paid, rejected, cancelled]
+        comment:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    LedgerEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        amount_kopecks:
+          type: integer
+          format: int64
+        balance_after_kopecks:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+    PayoutRules:
+      type: object
+      properties:
+        min_withdraw_kopecks:
+          type: integer
+          format: int64
+        usdt_rate:
+          type: number
+        sbp_fee_flat_kopecks:
+          type: integer
+          format: int64
+        sbp_fee_percent_bps:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+    ReferralItem:
+      type: object
+      properties:
+        partner_id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          nullable: true
+        joined_at:
+          type: string
+          format: date-time
+        reward_kopecks:
+          type: integer
+          format: int64
+    ReferralsResponse:
+      type: object
+      properties:
+        referral_code:
+          type: string
+        invite_url:
+          type: string
+        total_invited:
+          type: integer
+        total_reward_kopecks:
+          type: integer
+          format: int64
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReferralItem'
+    NotificationItem:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [announcement, personal]
+        title:
+          type: string
+        body:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        read:
+          type: boolean
+    AdminPartner:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        is_approved:
+          type: boolean
+        is_blocked:
+          type: boolean
+        balance_kopecks:
+          type: integer
+          format: int64
+        rates:
+          type: array
+          items:
+            type: object
+            properties:
+              offer_id:
+                type: string
+              rate_bps:
+                type: integer
+        created_at:
+          type: string
+          format: date-time
+    AdminPartnerDetail:
+      type: object
+      properties:
+        partner:
+          $ref: '#/components/schemas/AdminPartner'
+        balance:
+          $ref: '#/components/schemas/Balance'
+        ledger:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerEntry'
+        withdrawals:
+          type: array
+          items:
+            $ref: '#/components/schemas/WithdrawalRequest'
+        accesses:
+          type: array
+          items:
+            type: object
+            properties:
+              offer_id:
+                type: string
+              offer_name:
+                type: string
+              rate_bps:
+                type: integer
+              status:
+                type: string
+    ProjectCard:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        destination_url:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    OfferCard:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        project_name:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        destination_url:
+          type: string
+          nullable: true
+        status:
+          type: string
+        current_rate_bps:
+          type: integer
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    IntegrationKey:
+      type: object
+      properties:
+        key_id:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        secret_hint:
+          type: string
+    IntegrationKeySecret:
+      type: object
+      properties:
+        key_id:
+          type: string
+        secret:
+          type: string
+    AdminWithdrawal:
+      allOf:
+        - $ref: '#/components/schemas/WithdrawalRequest'
+        - type: object
+          properties:
+            partner_name:
+              type: string
+            partner_email:
+              type: string
+    AdminLedgerEntry:
+      allOf:
+        - $ref: '#/components/schemas/LedgerEntry'
+        - type: object
+          properties:
+            partner_id:
+              type: string
+            partner_name:
+              type: string
+            comment:
+              type: string
+              nullable: true
+    AdminEarning:
+      type: object
+      properties:
+        id:
+          type: string
+        partner_id:
+          type: string
+        offer_id:
+          type: string
+        conversion_event_id:
+          type: integer
+          format: int64
+        rate_bps:
+          type: integer
+        amount_kopecks:
+          type: integer
+          format: int64
+        external_user_id:
+          type: string
+        reversed:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    Announcement:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        audience:
+          type: string
+        is_published:
+          type: boolean
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AnnouncementInput:
+      type: object
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        audience:
+          type: string
+          enum: [all, partners, staff, specific_partner]
+        partner_ids:
+          type: array
+          items:
+            type: string
+    Branding:
+      type: object
+      properties:
+        name:
+          type: string
+        telegram_url:
+          type: string
+          nullable: true
+        avatar_url:
+          type: string
+          nullable: true
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        actor_email:
+          type: string
+          nullable: true
+        action:
+          type: string
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+        changes:
+          type: object
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    EventInput:
+      type: object
+      required: [event_id, type, occurred_at, external_user_id]
+      properties:
+        event_id:
+          type: string
+        type:
+          type: string
+          enum: [registration.created, revenue.confirmed, revenue.reversed]
+        occurred_at:
+          type: string
+          format: date-time
+        external_user_id:
+          type: string
+        click_token:
+          type: string
+        external_payment_id:
+          type: string
+        amount_kopecks:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          default: RUB

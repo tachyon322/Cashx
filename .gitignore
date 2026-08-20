@@ -1,0 +1,8 @@
+# Environment (локальные секреты; шаблон — backend/.env.example)
+backend/.env
+
+# Frontend (web/)
+web/node_modules/
+web/dist/
+
+.freebuff/

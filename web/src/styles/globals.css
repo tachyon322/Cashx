@@ -1,0 +1,444 @@
+@import "tailwindcss";
+
+/* ============================================================
+   CashX — дизайн-токены (премиум dark fintech / cyber dashboard)
+   Сетка 8px, primary #7928FF (только фиолетовый, без градиентов).
+   Всё ниже генерирует Tailwind-утилиты:
+   bg-bg, bg-surface-0..2, hover:bg-surface-hover, border-border,
+   focus:border-border-active, text-text, text-muted, text-faint,
+   text-violet-bright, bg-violet, bg-hero-glow, font-display, font-mono,
+   rounded-md (8px), rounded-lg (12px), shadow-card, shadow-glow-nav,
+   animate-toast-in, animate-shimmer, animate-spin-slow.
+   ============================================================ */
+@theme {
+  /* Сцена и поверхности */
+  --color-bg: #05050d;
+  --color-surface-0: #080815;
+  --color-surface-1: #0d0c1c;
+  --color-surface-2: #15122a;
+  --color-surface-hover: #1a1534;
+
+  /* Рамки */
+  --color-border: rgba(168, 85, 247, 0.22);
+  --color-border-soft: rgba(202, 174, 255, 0.12);
+  --color-border-strong: rgba(168, 85, 247, 0.5);
+  --color-border-active: rgba(165, 82, 255, 0.62);
+
+  /* Текст */
+  --color-text: #f4f1ff;
+  --color-muted: #9c95b8;
+  --color-faint: #615a79;
+
+  /* Палитра */
+  --color-violet: #7928ff;
+  --color-violet-bright: #a855f7;
+  --color-lilac: #c084fc;
+  --color-magenta: #d946ef;
+  --color-blue: #56b7ff;
+  --color-success: #2fe39a;
+  --color-warning: #ffc557;
+  --color-danger: #ff647c;
+
+  /* Свечения (bg-hero-glow) */
+  --background-image-hero-glow: radial-gradient(circle at 62% 45%, rgba(130, 43, 255, 0.32), transparent 42%);
+  --background-image-hero-grid:
+    linear-gradient(rgba(168, 85, 247, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(168, 85, 247, 0.06) 1px, transparent 1px);
+  --background-image-hero-radial: radial-gradient(ellipse at 50% 100%, rgba(121, 40, 255, 0.35) 0%, transparent 65%);
+
+  /* Шрифты */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Unbounded', 'Inter', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Радиусы: rounded-md = 8px, rounded-lg = 12px */
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Тени */
+  --shadow-card:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset,
+    0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-glow-nav:
+    0 0 0 1px rgba(168, 85, 247, 0.5),
+    0 0 22px rgba(121, 40, 255, 0.22);
+  --shadow-glow-card:
+    0 0 0 1px rgba(168, 85, 247, 0.32),
+    0 0 28px rgba(121, 40, 255, 0.16),
+    0 8px 32px rgba(0, 0, 0, 0.45);
+  --shadow-glow-strong:
+    0 0 0 1px rgba(168, 85, 247, 0.5),
+    0 0 36px rgba(121, 40, 255, 0.28),
+    0 0 80px rgba(121, 40, 255, 0.14);
+  --shadow-neon-inset: 0 0 18px rgba(168, 85, 247, 0.5) inset;
+
+  /* Анимации */
+  --animate-spin-slow: cx-spin 0.8s linear infinite;
+  --animate-shimmer: cx-shimmer 1.4s ease-in-out infinite;
+  --animate-toast-in: cx-toast-in 0.18s ease;
+
+  @keyframes cx-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes cx-shimmer {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  @keyframes cx-toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* ============================================================
+   Исходные --cx-* переменные. Сохранены для inline-стилей
+   в TSX (var(--cx-…)) и обратной совместимости.
+   ============================================================ */
+:root {
+  color-scheme: dark;
+
+  /* Сцена и поверхности */
+  --cx-bg: #05050d;
+  --cx-surface-0: #080815;
+  --cx-surface-1: #0d0c1c;
+  --cx-surface-2: #15122a;
+  --cx-surface-hover: #1a1534;
+
+  /* Рамки */
+  --cx-border: rgba(168, 85, 247, 0.22);
+  --cx-border-soft: rgba(202, 174, 255, 0.12);
+  --cx-border-strong: rgba(168, 85, 247, 0.5);
+  --cx-border-active: rgba(165, 82, 255, 0.62);
+
+  /* Текст */
+  --cx-text: #f4f1ff;
+  --cx-text-muted: #9c95b8;
+  --cx-text-faint: #615a79;
+
+  /* Палитра */
+  --cx-violet: #7928ff;
+  --cx-violet-bright: #a855f7;
+  --cx-lilac: #c084fc;
+  --cx-magenta: #d946ef;
+  --cx-blue: #56b7ff;
+  --cx-success: #2fe39a;
+  --cx-warning: #ffc557;
+  --cx-danger: #ff647c;
+
+  /* Свечения */
+  --cx-glow-nav:
+    0 0 0 1px rgba(168, 85, 247, 0.5),
+    0 0 22px rgba(121, 40, 255, 0.22);
+  --cx-glow-card:
+    0 0 0 1px rgba(168, 85, 247, 0.32),
+    0 0 28px rgba(121, 40, 255, 0.16),
+    0 8px 32px rgba(0, 0, 0, 0.45);
+  --cx-glow-strong:
+    0 0 0 1px rgba(168, 85, 247, 0.5),
+    0 0 36px rgba(121, 40, 255, 0.28),
+    0 0 80px rgba(121, 40, 255, 0.14);
+  --cx-hero-glow: radial-gradient(circle at 62% 45%, rgba(130, 43, 255, 0.32), transparent 42%);
+
+  /* Шрифты */
+  --cx-font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --cx-font-display: 'Unbounded', 'Inter', sans-serif;
+
+  /* Радиусы */
+  --cx-radius-lg: 12px; /* карточки */
+  --cx-radius-md: 8px; /* инпуты */
+
+  /* Тени */
+  --cx-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset,
+    0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* ============================================================
+   Базовые стили: reset, типографика, скроллбары, фокус.
+   Обёрнуты в @layer base, чтобы не-слойные авторские правила
+   (в частности * { margin: 0 }) не перекрывали Tailwind-утилиты
+   из @layer utilities (иначе ломаются margin-утилиты типа ml-*).
+   ============================================================ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  * {
+    margin: 0;
+  }
+
+  html {
+    height: 100%;
+  }
+
+  body {
+    min-height: 100%;
+    background: var(--cx-bg);
+    color: var(--cx-text);
+    font-family: var(--cx-font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  a {
+    color: var(--cx-lilac);
+    text-decoration: none;
+  }
+
+  a:hover {
+    color: var(--cx-violet-bright);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  /* Выделение */
+  ::selection {
+    background: var(--cx-violet);
+    color: #ffffff;
+  }
+
+  /* Фокус */
+  :focus-visible {
+    outline: 2px solid var(--cx-violet-bright);
+    outline-offset: 2px;
+  }
+
+  /* Тонкие скроллбары */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--cx-surface-2) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--cx-surface-2);
+    border-radius: 999px;
+    border: 2px solid var(--cx-bg);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--cx-violet);
+  }
+}
+
+/* ============================================================
+   Tailwind-утилиты для конструкций, которые набором inline-классов
+   передать неудобно (псевдоэлементы / data-URI). Определены через
+   @utility — часть экосистемы Tailwind v4.
+   ============================================================ */
+
+/* Бегущий блик на скелетоне: используй вместе с relative overflow-hidden */
+
+@utility skeleton-shimmer {
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+    animation: cx-shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+/* Объёмные кнопки: фаска рисуется ТОЛЬКО внутренними (inset) тенями —
+   внутри границ элемента, поэтому тень не отбрасывается на соседние
+   элементы. Три тональности + состояние нажатия.
+
+   btn-bevel-light  — залитые акцентные кнопки (violet): яркий верхний блик + тёмное основание.
+   btn-bevel-dark   — контурные кнопки: лёгкий верхний блик + тёмное основание.
+   btn-bevel-danger — контурные опасные кнопки: красноватый блик + тёмное основание.
+   btn-bevel-pressed — состояние нажатия: фаска «уходит внутрь» (кнопка вдавливается),
+                      используй вместе с active:translate-y-px. */
+
+@utility btn-bevel-light {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.32);
+}
+
+@utility btn-bevel-dark {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.42);
+}
+
+@utility btn-bevel-danger {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 100, 124, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.42);
+}
+
+@utility btn-bevel-pressed {
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+/* ============================================================
+   Объём с боковым теневым градиентом — выпуклость за счёт
+   ВНУТРЕННИХ теней с боков к центру (без внешних теней).
+   Тень у кромок темнее, к центру плавно уходит в 0
+   благодаря размытию inset-теней (12–18px blur + соответствующий
+   offset). Верхний блик + нижнее затемнение усиливают 3D.
+   Используй вместе с relative isolate overflow-hidden и
+   обёрткой контента (z-10), если добавляешь ::before градиент.
+   ============================================================ */
+
+@utility btn-volume-primary {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.36),
+    inset 10px 0 16px rgba(0, 0, 0, 0.22),
+    inset -10px 0 16px rgba(0, 0, 0, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+@utility btn-volume-secondary {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 4px rgba(0, 0, 0, 0.45),
+    inset 9px 0 14px rgba(0, 0, 0, 0.34),
+    inset -9px 0 14px rgba(0, 0, 0, 0.34);
+}
+
+@utility btn-volume-ghost {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 8px 0 13px rgba(0, 0, 0, 0.28),
+    inset -8px 0 13px rgba(0, 0, 0, 0.28);
+}
+
+@utility btn-volume-danger {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 100, 124, 0.12),
+    inset 0 -1px 4px rgba(0, 0, 0, 0.42),
+    inset 8px 0 13px rgba(60, 0, 20, 0.22),
+    inset -8px 0 13px rgba(60, 0, 20, 0.22);
+}
+
+@utility btn-volume-pressed {
+  box-shadow:
+    inset 0 2px 7px rgba(0, 0, 0, 0.55),
+    inset 7px 0 12px rgba(0, 0, 0, 0.4),
+    inset -7px 0 12px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Плавный теневой градиент поверх фона — усиливает переход
+   с боков в центр (тёмные края → прозрачный центр) + лёгкий
+   верхний блик. Рисуется ::before, поэтому не перекрывает текст:
+   контент оборачивается в relative z-[1]. */
+@utility btn-side-gradient {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      linear-gradient(90deg, rgba(0, 0, 0, 0.24) 0%, rgba(0, 0, 0, 0.06) 22%, transparent 36%, transparent 64%, rgba(0, 0, 0, 0.06) 78%, rgba(0, 0, 0, 0.24) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, transparent 46%);
+    pointer-events: none;
+    z-index: 0;
+  }
+}
+
+@utility btn-side-gradient-danger {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      linear-gradient(90deg, rgba(80, 0, 20, 0.26) 0%, rgba(80, 0, 20, 0.07) 22%, transparent 36%, transparent 64%, rgba(80, 0, 20, 0.07) 78%, rgba(80, 0, 20, 0.26) 100%),
+      linear-gradient(180deg, rgba(255, 120, 140, 0.1) 0%, transparent 46%);
+    pointer-events: none;
+    z-index: 0;
+  }
+}
+
+/* Неоновые карточки (как на референсе CashxPay) */
+@utility card-neon {
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(168, 85, 247, 0.32),
+    0 0 28px rgba(121, 40, 255, 0.16),
+    0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+@utility card-neon-strong {
+  border: 1px solid rgba(168, 85, 247, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(168, 85, 247, 0.5),
+    0 0 36px rgba(121, 40, 255, 0.28),
+    0 0 80px rgba(121, 40, 255, 0.14);
+}
+
+@utility neon-text {
+  text-shadow:
+    0 0 16px rgba(168, 85, 247, 0.85),
+    0 0 36px rgba(121, 40, 255, 0.45);
+}
+
+@utility hero-grid {
+  background-image:
+    linear-gradient(rgba(168, 85, 247, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(168, 85, 247, 0.07) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+/* Кастомная стрелка для <select> (appearance:none + data-URI chevron) */
+
+@utility select-arrow {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--color-surface-1);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239C95B8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
