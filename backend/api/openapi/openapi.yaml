@@ -627,7 +627,7 @@ paths:
           $ref: '#/components/responses/Error'
     patch:
       operationId: adminPartnerUpdate
-      summary: Update partner (approve/block/rename)
+      summary: Update partner (approve/block/rename/revshare)
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -647,6 +647,9 @@ paths:
                   type: boolean
                 is_blocked:
                   type: boolean
+                revshare_percent_bps:
+                  type: integer
+                  description: RevShare for the partner (1% = 100 bps). Updates global revshare and syncs all accesses.
       responses:
         '200':
           description: OK
@@ -827,7 +830,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [project_id, name, rate_bps]
+              required: [project_id, name]
               properties:
                 project_id:
                   type: string
@@ -845,6 +848,7 @@ paths:
                   default: pending
                 rate_bps:
                   type: integer
+                  description: Deprecated — revshare is now per-partner, not per-offer. If omitted, defaults to 0.
       responses:
         '201':
           description: Created
@@ -1315,8 +1319,9 @@ paths:
                   type: string
                 telegram_url:
                   type: string
-                avatar_media_id:
+                avatar_url:
                   type: string
+                  nullable: true
       responses:
         '200':
           description: OK
@@ -1905,6 +1910,9 @@ components:
         balance_kopecks:
           type: integer
           format: int64
+        revshare_percent_bps:
+          type: integer
+          description: RevShare per partner (1% = 100 bps)
         rates:
           type: array
           items:

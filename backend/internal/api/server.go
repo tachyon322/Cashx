@@ -11,7 +11,6 @@ import (
 	"cashx/internal/audit"
 	"cashx/internal/auth"
 	"cashx/internal/integrations"
-	"cashx/internal/media"
 	"cashx/internal/offers"
 	"cashx/internal/partners"
 	"cashx/internal/payouts"
@@ -37,7 +36,6 @@ type Server struct {
 	Payouts      *payouts.Service
 	Partners     *partners.Service
 	Admin        *admin.Service
-	Media        *media.Store
 }
 
 // New assembles the server dependencies.

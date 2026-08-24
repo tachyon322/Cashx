@@ -111,7 +111,7 @@ CREATE TABLE platform_settings (
 INSERT INTO platform_settings (key, value) VALUES
     ('referral_rate_default_bps', '250'),
     ('referral_rate_max_bps', '500'),
-    ('branding', '{"name":"CashX","telegram_url":null,"avatar_media_id":null}')
+    ('branding', '{"name":"CashX","telegram_url":null,"avatar_url":null}')
 ON CONFLICT (key) DO NOTHING;
 
 -- +goose Down

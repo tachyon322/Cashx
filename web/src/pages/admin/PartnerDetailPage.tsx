@@ -66,11 +66,36 @@ export function PartnerDetailPage() {
   const [editEmail, setEditEmail] = useState('')
   const [editPassword, setEditPassword] = useState('')
 
+  // RevShare (глобальный, привязан к юзеру)
+  const [revshareOpen, setRevshareOpen] = useState(false)
+  const [revshareBps, setRevshareBps] = useState('')
+
   const openEdit = () => {
     setEditName(partner?.name ?? '')
     setEditEmail(partner?.email ?? '')
     setEditPassword('')
     setEditOpen(true)
+  }
+
+  const openRevshare = () => {
+    setRevshareBps(String((partner as any)?.revshare_percent_bps ?? 4000))
+    setRevshareOpen(true)
+  }
+
+  const submitRevshare = async (event: FormEvent) => {
+    event.preventDefault()
+    const bps = Number(revshareBps)
+    if (!Number.isFinite(bps) || bps < 0 || bps > 10000) {
+      toast.error('Укажите ставку 0–10000 бпс (100 = 1%)')
+      return
+    }
+    try {
+      await updateMutation.mutateAsync({ id, revshare_percent_bps: bps })
+      toast.success(`RevShare обновлён: ${formatBps(bps)} — все доступы синхронизированы`)
+      setRevshareOpen(false)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Не удалось обновить RevShare')
+    }
   }
 
   const submitEdit = async (event: FormEvent) => {
@@ -223,10 +248,37 @@ export function PartnerDetailPage() {
           value={balance ? formatRubles(balance.reserved_kopecks ?? 0) : '—'}
           icon={<ShieldCheck size={16} />}
         />
+        <StatCard
+          label="RevShare партнёра"
+          value={formatBps((partner as any)?.revshare_percent_bps ?? 4000)}
+          display
+          hint="Глобально для всех офферов · 1% = 100 бпс"
+          icon={<ShieldCheck size={16} />}
+        />
       </div>
 
       <Card
-        title="Ставки по офферам"
+        title="RevShare (привязан к юзеру)"
+        subtitle="Единая ставка для всех офферов. Изменение синхронизирует все доступы партнёра"
+        actions={
+          canEdit && (
+            <Button size="sm" onClick={openRevshare}>
+              <Pencil size={14} />
+              Изменить RevShare
+            </Button>
+          )
+        }
+      >
+        <div className="flex items-center gap-3">
+          <span className="font-display text-[28px] font-black leading-none tracking-[-0.02em] text-violet-bright">
+            {formatBps((partner as any)?.revshare_percent_bps ?? 4000)}
+          </span>
+          <span className="text-[12px] text-faint">· {((partner as any)?.revshare_percent_bps ?? 4000)} бпс</span>
+        </div>
+      </Card>
+
+      <Card
+        title="Ставки по офферам (наследуют RevShare)"
         actions={
           canEdit && (
             <Button variant="secondary" size="sm" onClick={openRate}>
@@ -386,7 +438,36 @@ export function PartnerDetailPage() {
         </form>
       </Modal>
 
-      <Modal open={rateOpen} onClose={() => setRateOpen(false)} title="Задать ставку по офферу">
+      <Modal open={revshareOpen} onClose={() => setRevshareOpen(false)} title="Изменить RevShare партнёра">
+        <form className={MODAL_FORM_CLASSES} onSubmit={submitRevshare}>
+          <Field label="RevShare, бпс" hint="1% = 100 бпс · 4000 = 40% комиссии партнёра на всех офферах" htmlFor="pd-revshare">
+            <Input
+              id="pd-revshare"
+              type="number"
+              required
+              min={0}
+              max={10000}
+              value={revshareBps}
+              onChange={(event) => setRevshareBps(event.target.value)}
+            />
+          </Field>
+          <p className="text-[12px] leading-relaxed text-muted">
+            Текущая: <span className="font-semibold text-text">{formatBps((partner as any)?.revshare_percent_bps ?? 4000)}</span>. Будет записан в{' '}
+            <code className="font-mono text-[11px]">partner_profiles</code> и синхронизирован во все{' '}
+            <code className="font-mono text-[11px]">partner_offer_accesses</code>.
+          </p>
+          <div className={MODAL_ACTIONS_CLASSES}>
+            <Button variant="secondary" onClick={() => setRevshareOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="submit" loading={updateMutation.isPending}>
+              Сохранить
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={rateOpen} onClose={() => setRateOpen(false)} title="Задать ставку по офферу (переопределение)">
         <form className={MODAL_FORM_CLASSES} onSubmit={submitRate}>
           <Field label="Оффер" htmlFor="pd-offer">
             <Select
@@ -406,7 +487,7 @@ export function PartnerDetailPage() {
               ))}
             </Select>
           </Field>
-          <Field label="Ставка, бпс" hint="1% = 100 бпс" htmlFor="pd-rate">
+          <Field label="Ставка, бпс" hint="1% = 100 бпс · Переопределит только этот оффер (обычно меняйте глобальный RevShare)" htmlFor="pd-rate">
             <Input
               id="pd-rate"
               type="number"

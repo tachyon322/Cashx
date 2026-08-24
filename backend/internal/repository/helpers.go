@@ -121,3 +121,11 @@ func Float64ToPtr(f pgtype.Float8) *float64 {
 	v := f.Float64
 	return &v
 }
+
+// Int32Ptr converts a *int (nil = NULL) to pgtype.Int4.
+func Int32Ptr(v *int) pgtype.Int4 {
+	if v == nil {
+		return pgtype.Int4{}
+	}
+	return pgtype.Int4{Int32: int32(*v), Valid: true}
+}

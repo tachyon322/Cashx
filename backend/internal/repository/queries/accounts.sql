@@ -57,7 +57,7 @@ FROM users u JOIN partner_profiles p ON p.user_id = u.id WHERE p.id = $1;
 SELECT user_id FROM partner_profiles WHERE id = $1;
 
 -- name: ListPartnerProfilesAdmin :many
-SELECT p.id, p.user_id, p.referral_code, p.is_approved, p.is_blocked, p.telegram_user_id, p.comment, p.created_at,
+SELECT p.id, p.user_id, p.referral_code, p.is_approved, p.is_blocked, p.revshare_percent_bps, p.telegram_user_id, p.comment, p.created_at,
        u.email, u.name,
        w.available_kopecks, w.reserved_kopecks
 FROM partner_profiles p

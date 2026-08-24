@@ -520,6 +520,7 @@ export interface AdminPartnerUpdateInput {
   password?: string
   is_approved?: boolean
   is_blocked?: boolean
+  revshare_percent_bps?: number
 }
 
 export function useAdminPartnerUpdate() {
@@ -604,14 +605,17 @@ export interface AdminOfferCreateInput {
   description?: string
   destination_url?: string
   status?: 'active' | 'available' | 'pending' | 'coming_soon'
-  rate_bps: number
+  rate_bps?: number
 }
 
 export function useAdminOfferCreate() {
   const invalidate = useInvalidate(['admin', 'offers'], ['offers'])
   return useMutation({
-    mutationFn: (input: AdminOfferCreateInput) =>
-      unwrap(api.POST('/admin/offers', { body: input })),
+    mutationFn: (input: AdminOfferCreateInput) => {
+      // RevShare теперь per-partner, offer rate deprecated — шлём дефолт для совместимости с текущим бэком
+      const body = { rate_bps: 4000, ...input } as AdminOfferCreateInput & { rate_bps: number }
+      return unwrap(api.POST('/admin/offers', { body: body as any }))
+    },
     onSuccess: invalidate,
     onError: handleAuthError,
   })
@@ -815,7 +819,7 @@ export function useAdminAnnouncementDelete() {
 export interface AdminBrandingInput {
   name?: string
   telegram_url?: string
-  avatar_media_id?: string
+  avatar_url?: string | null
 }
 
 export function useAdminBrandingPut() {
@@ -823,50 +827,6 @@ export function useAdminBrandingPut() {
   return useMutation({
     mutationFn: (input: AdminBrandingInput) =>
       unwrap(api.PUT('/admin/platform/branding', { body: input })),
-    onSuccess: invalidate,
-    onError: handleAuthError,
-  })
-}
-
-/* --- Админ: медиа (вне OpenAPI, мультипарт) --- */
-
-export interface AdminMediaUploadResult {
-  media_id: string
-  url: string
-}
-
-/** POST /admin/media — загрузка файла (multipart, поле `file`); роут вне OpenAPI. */
-export function useAdminMediaUpload() {
-  const invalidate = useInvalidate(['admin', 'branding'])
-  return useMutation({
-    mutationFn: async (file: File): Promise<AdminMediaUploadResult> => {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch('/api/v1/admin/media', {
-        method: 'POST',
-        credentials: 'same-origin',
-        body: form,
-      })
-      if (!res.ok) {
-        let message = `Ошибка загрузки файла (${res.status})`
-        try {
-          const body: unknown = await res.json()
-          if (
-            body !== null &&
-            typeof body === 'object' &&
-            'message' in body &&
-            typeof body.message === 'string' &&
-            body.message.trim().length > 0
-          ) {
-            message = body.message
-          }
-        } catch {
-          // тело не JSON — ниже generic
-        }
-        throw new ApiRequestError(res.status, message)
-      }
-      return (await res.json()) as AdminMediaUploadResult
-    },
     onSuccess: invalidate,
     onError: handleAuthError,
   })

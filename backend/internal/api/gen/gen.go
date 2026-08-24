@@ -952,9 +952,9 @@ type AdminPartnerRateJSONBody struct {
 
 // AdminBrandingPutJSONBody defines parameters for AdminBrandingPut.
 type AdminBrandingPutJSONBody struct {
-	AvatarMediaId *string `json:"avatar_media_id,omitempty"`
-	Name          *string `json:"name,omitempty"`
-	TelegramUrl   *string `json:"telegram_url,omitempty"`
+	AvatarUrl   *string `json:"avatar_url,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	TelegramUrl *string `json:"telegram_url,omitempty"`
 }
 
 // AdminProjectsListParams defines parameters for AdminProjectsList.

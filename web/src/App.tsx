@@ -23,7 +23,6 @@ import { IntegrationKeysPage } from './pages/admin/IntegrationKeysPage'
 import { OffersAdminPage } from './pages/admin/OffersAdminPage'
 import { PartnerDetailPage } from './pages/admin/PartnerDetailPage'
 import { PartnersPage } from './pages/admin/PartnersPage'
-import { ProjectsPage } from './pages/admin/ProjectsPage'
 import { WithdrawalsPage } from './pages/admin/WithdrawalsPage'
 import { BlockedPage, ForbiddenPage, PendingPage } from './pages/states'
 
@@ -177,7 +176,7 @@ const router = createBrowserRouter([
                     path: '/admin/partners/:id',
                     element: <PartnerDetailPage />,
                   },
-                  { path: '/admin/projects', element: <ProjectsPage /> },
+                  { path: '/admin/projects', element: <Navigate to="/admin/offers" replace /> },
                   { path: '/admin/offers', element: <OffersAdminPage /> },
                 ],
               },

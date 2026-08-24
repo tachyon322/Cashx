@@ -66,26 +66,6 @@ func (q *Queries) GetAnnouncementRead(ctx context.Context, arg GetAnnouncementRe
 	return i, err
 }
 
-const getMediaAsset = `-- name: GetMediaAsset :one
-SELECT id, bucket, key, content_type, size_bytes, uploaded_by, created_at
-FROM media_assets WHERE id = $1
-`
-
-func (q *Queries) GetMediaAsset(ctx context.Context, id string) (MediaAsset, error) {
-	row := q.db.QueryRow(ctx, getMediaAsset, id)
-	var i MediaAsset
-	err := row.Scan(
-		&i.ID,
-		&i.Bucket,
-		&i.Key,
-		&i.ContentType,
-		&i.SizeBytes,
-		&i.UploadedBy,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const insertAnnouncement = `-- name: InsertAnnouncement :one
 INSERT INTO announcements (title, body, audience, created_by)
 VALUES ($1, $2, $3, $4) RETURNING id, title, body, audience, is_published, published_at, created_by, created_at, updated_at, deleted_at
@@ -147,40 +127,6 @@ type InsertAnnouncementReadParams struct {
 func (q *Queries) InsertAnnouncementRead(ctx context.Context, arg InsertAnnouncementReadParams) error {
 	_, err := q.db.Exec(ctx, insertAnnouncementRead, arg.AnnouncementID, arg.ReaderUserID)
 	return err
-}
-
-const insertMediaAsset = `-- name: InsertMediaAsset :one
-INSERT INTO media_assets (bucket, key, content_type, size_bytes, uploaded_by)
-VALUES ($1, $2, $3, $4, $5) RETURNING id, bucket, key, content_type, size_bytes, uploaded_by, created_at
-`
-
-type InsertMediaAssetParams struct {
-	Bucket      string      `json:"bucket"`
-	Key         string      `json:"key"`
-	ContentType string      `json:"content_type"`
-	SizeBytes   int64       `json:"size_bytes"`
-	UploadedBy  pgtype.UUID `json:"uploaded_by"`
-}
-
-func (q *Queries) InsertMediaAsset(ctx context.Context, arg InsertMediaAssetParams) (MediaAsset, error) {
-	row := q.db.QueryRow(ctx, insertMediaAsset,
-		arg.Bucket,
-		arg.Key,
-		arg.ContentType,
-		arg.SizeBytes,
-		arg.UploadedBy,
-	)
-	var i MediaAsset
-	err := row.Scan(
-		&i.ID,
-		&i.Bucket,
-		&i.Key,
-		&i.ContentType,
-		&i.SizeBytes,
-		&i.UploadedBy,
-		&i.CreatedAt,
-	)
-	return i, err
 }
 
 const insertUserNotification = `-- name: InsertUserNotification :exec

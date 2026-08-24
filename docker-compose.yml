@@ -31,25 +31,6 @@ services:
       timeout: 3s
       retries: 20
 
-  minio:
-    image: minio/minio
-    container_name: cashx-minio
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      MINIO_ROOT_USER: cashx_minio
-      MINIO_ROOT_PASSWORD: cashx_minio_dev_password
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - cashx_miniodata:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
 volumes:
   cashx_pgdata:
   cashx_redisdata:
-  cashx_miniodata:

@@ -1004,6 +1004,7 @@ export interface components {
             is_blocked?: boolean;
             /** Format: int64 */
             balance_kopecks?: number;
+            revshare_percent_bps?: number;
             rates?: {
                 offer_id?: string;
                 rate_bps?: number;
@@ -2605,7 +2606,7 @@ export interface operations {
                 "application/json": {
                     name?: string;
                     telegram_url?: string;
-                    avatar_media_id?: string;
+                    avatar_url?: string | null;
                 };
             };
         };

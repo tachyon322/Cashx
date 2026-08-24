@@ -994,3 +994,17 @@ func (q *Queries) UpdateTrackingLink(ctx context.Context, arg UpdateTrackingLink
 	)
 	return i, err
 }
+
+const updateAllAccessRatesByPartner = `-- name: UpdateAllAccessRatesByPartner :exec
+UPDATE partner_offer_accesses SET rate_bps = $2, updated_at = now() WHERE partner_id = $1
+`
+
+type UpdateAllAccessRatesByPartnerParams struct {
+	PartnerID string `json:"partner_id"`
+	RateBps   int32  `json:"rate_bps"`
+}
+
+func (q *Queries) UpdateAllAccessRatesByPartner(ctx context.Context, arg UpdateAllAccessRatesByPartnerParams) error {
+	_, err := q.db.Exec(ctx, updateAllAccessRatesByPartner, arg.PartnerID, arg.RateBps)
+	return err
+}

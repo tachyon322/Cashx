@@ -37,14 +37,15 @@ func (s *Service) q(ctx context.Context) *repository.Queries { return repository
 
 // PartnerRow is one row of the admin partner list.
 type PartnerRow struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Email          string `json:"email"`
-	IsApproved     bool   `json:"is_approved"`
-	IsBlocked      bool   `json:"is_blocked"`
-	BalanceKopecks int64  `json:"balance_kopecks"`
-	Rates          []Rate `json:"rates"`
-	CreatedAt      string `json:"created_at"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Email              string `json:"email"`
+	IsApproved         bool   `json:"is_approved"`
+	IsBlocked          bool   `json:"is_blocked"`
+	BalanceKopecks     int64  `json:"balance_kopecks"`
+	RevsharePercentBps int    `json:"revshare_percent_bps"`
+	Rates              []Rate `json:"rates"`
+	CreatedAt          string `json:"created_at"`
 }
 
 // Rate is a partner's personal rate for an offer.
@@ -81,8 +82,9 @@ func (s *Service) ListPartners(ctx context.Context, search, status string, limit
 			ID: r.ID, Name: r.Name, Email: r.Email,
 			IsApproved: r.IsApproved, IsBlocked: r.IsBlocked,
 			BalanceKopecks: r.AvailableKopecks + r.ReservedKopecks,
-			Rates:          ratesByPartner[r.ID],
-			CreatedAt:      r.CreatedAt.Time.UTC().Format(time.RFC3339),
+			RevsharePercentBps: int(r.RevsharePercentBps),
+			Rates:              ratesByPartner[r.ID],
+			CreatedAt:          r.CreatedAt.Time.UTC().Format(time.RFC3339),
 		})
 	}
 	return out, total, nil
@@ -118,8 +120,8 @@ func (s *Service) CreatePartner(ctx context.Context, actorID *string, name, emai
 	return *user, nil
 }
 
-// UpdatePartner patches approval/block/name/email/password.
-func (s *Service) UpdatePartner(ctx context.Context, actorID *string, id string, name, email, password *string, isApproved, isBlocked *bool) (PartnerRow, error) {
+// UpdatePartner patches approval/block/name/email/password/revshare.
+func (s *Service) UpdatePartner(ctx context.Context, actorID *string, id string, name, email, password *string, isApproved, isBlocked *bool, revshareBps *int) (PartnerRow, error) {
 	q := s.q(ctx)
 	profile, err := q.GetPartnerProfileByID(ctx, id)
 	if err != nil {
@@ -135,6 +137,9 @@ func (s *Service) UpdatePartner(ctx context.Context, actorID *string, id string,
 	if name != nil && strings.TrimSpace(*name) == "" {
 		return PartnerRow{}, fmt.Errorf("%w: invalid_name", platform.ErrValidation)
 	}
+	if revshareBps != nil && (*revshareBps < 0 || *revshareBps > 10000) {
+		return PartnerRow{}, fmt.Errorf("%w: invalid_rate", platform.ErrValidation)
+	}
 	err = repository.WithTx(ctx, s.Pool, func(tq *repository.Queries) error {
 		if name != nil || email != nil || isBlocked != nil {
 			if _, err := tq.UpdateUser(ctx, repository.UpdateUserParams{
@@ -143,9 +148,18 @@ func (s *Service) UpdatePartner(ctx context.Context, actorID *string, id string,
 				return err
 			}
 		}
-		if isApproved != nil || isBlocked != nil {
+		if isApproved != nil || isBlocked != nil || revshareBps != nil {
 			if _, err := tq.UpdatePartnerProfile(ctx, repository.UpdatePartnerProfileParams{
 				ID: profile.ID, IsApproved: repository.BoolPtr(isApproved), IsBlocked: repository.BoolPtr(isBlocked),
+				RevsharePercentBps: repository.Int32Ptr(revshareBps),
+			}); err != nil {
+				return err
+			}
+		}
+		if revshareBps != nil {
+			// Sync all existing accesses to the new global revshare.
+			if err := tq.UpdateAllAccessRatesByPartner(ctx, repository.UpdateAllAccessRatesByPartnerParams{
+				PartnerID: profile.ID, RateBps: int32(*revshareBps),
 			}); err != nil {
 				return err
 			}
@@ -182,7 +196,7 @@ func (s *Service) UpdatePartner(ctx context.Context, actorID *string, id string,
 	}
 	if s.Audit != nil {
 		_ = s.Audit.Record(ctx, actorID, "partner.updated", "partner", id, map[string]any{
-			"is_approved": isApproved, "is_blocked": isBlocked, "name": name, "email": email,
+			"is_approved": isApproved, "is_blocked": isBlocked, "name": name, "email": email, "revshare_bps": revshareBps,
 		}, nil)
 	}
 	row, err := s.GetPartner(ctx, id)
@@ -245,7 +259,8 @@ func (s *Service) GetPartner(ctx context.Context, id string) (PartnerRow, error)
 		ID: profile.ID, Name: user.Name, Email: user.Email,
 		IsApproved: profile.IsApproved, IsBlocked: profile.IsBlocked,
 		BalanceKopecks: wallet.AvailableKopecks + wallet.ReservedKopecks,
-		CreatedAt:      profile.CreatedAt.Time.UTC().Format(time.RFC3339),
+		RevsharePercentBps: int(profile.RevsharePercentBps),
+		CreatedAt:          profile.CreatedAt.Time.UTC().Format(time.RFC3339),
 	}
 	for _, r := range rates {
 		out.Rates = append(out.Rates, Rate{OfferID: r.OfferID, RateBps: int(r.RateBps)})
@@ -431,17 +446,14 @@ func (s *Service) GetBranding(ctx context.Context) (Branding, error) {
 }
 
 // UpdateBranding writes platform_settings.branding.
-func (s *Service) UpdateBranding(ctx context.Context, actorID *string, name string, telegramURL *string, avatarMediaID *string) (Branding, error) {
+func (s *Service) UpdateBranding(ctx context.Context, actorID *string, name string, telegramURL *string, avatarURL *string) (Branding, error) {
 	if strings.TrimSpace(name) == "" {
 		return Branding{}, fmt.Errorf("%w: invalid_name", platform.ErrValidation)
 	}
-	b := Branding{Name: name, TelegramURL: telegramURL}
-	if avatarMediaID != nil && *avatarMediaID != "" {
-		if row, err := s.q(ctx).GetMediaAsset(ctx, *avatarMediaID); err == nil {
-			url := "http://localhost:9000/" + row.Bucket + "/" + row.Key
-			b.AvatarURL = &url
-		}
+	if avatarURL != nil && strings.TrimSpace(*avatarURL) == "" {
+		avatarURL = nil
 	}
+	b := Branding{Name: name, TelegramURL: telegramURL, AvatarURL: avatarURL}
 	raw, err := json.Marshal(b)
 	if err != nil {
 		return Branding{}, err
@@ -453,18 +465,6 @@ func (s *Service) UpdateBranding(ctx context.Context, actorID *string, name stri
 		_ = s.Audit.Record(ctx, actorID, "branding.updated", "branding", "singleton", map[string]any{"name": name}, nil)
 	}
 	return b, nil
-}
-
-// InsertMedia registers an uploaded media asset and returns its URL.
-func (s *Service) InsertMedia(ctx context.Context, actorID *string, bucket, key, contentType string, size int64) (mediaID, url string, err error) {
-	row, err := s.q(ctx).InsertMediaAsset(ctx, repository.InsertMediaAssetParams{
-		Bucket: bucket, Key: key, ContentType: contentType, SizeBytes: size,
-		UploadedBy: repository.UUIDPtr(actorID),
-	})
-	if err != nil {
-		return "", "", err
-	}
-	return row.ID, "http://localhost:9000/" + bucket + "/" + key, nil
 }
 
 func boolPtr(b bool) *bool { return &b }

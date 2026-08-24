@@ -13,7 +13,7 @@ import (
 
 // Config holds all runtime configuration, sourced from environment variables.
 // Значения считаются из окружения (через .env в dev, godotenv.Load()). Все
-// чувствительные параметры (секреты, доступы к БД/S3, пароль админа) обязаны
+// чувствительные параметры (секреты, доступы к БД, пароль админа) обязаны
 // быть заданы явно — дефолтов у них нет, см. validate().
 type Config struct {
 	Env            string
@@ -35,12 +35,6 @@ type Config struct {
 	WebOrigin string
 	// RateLimit enables Redis-backed rate limiting (disabled in tests).
 	RateLimit bool
-	// S3/MinIO settings for media uploads.
-	S3Endpoint  string
-	S3AccessKey string
-	S3SecretKey string
-	S3Bucket    string
-	S3UseSSL    bool
 	// IntegrationKeyEncryptionKey encrypts integration key secrets at rest.
 	IntegrationKeyEncryptionKey string
 	// AdminEmail/AdminPassword seed the initial superadmin when no users exist.
@@ -99,9 +93,6 @@ func Load() (Config, error) {
 		SMTPFrom:         getenv("CASHX_SMTP_FROM", "no-reply@cashx.local"),
 		WebOrigin:        getenv("CASHX_WEB_ORIGIN", "http://localhost:3000"),
 		RateLimit:        getenv("CASHX_RATE_LIMIT", "true") == "true",
-		S3Endpoint:       getenv("CASHX_S3_ENDPOINT", "localhost:9000"),
-		S3Bucket:         getenv("CASHX_S3_BUCKET", "cashx-media"),
-		S3UseSSL:         getenv("CASHX_S3_USE_SSL", "false") == "true",
 		AdminEmail:       getenv("CASHX_ADMIN_EMAIL", "admin@cashx.local"),
 		SMTPHost:         getenv("CASHX_SMTP_HOST", ""),
 		SMTPPort:         getenvInt("CASHX_SMTP_PORT", 587),
@@ -113,8 +104,6 @@ func Load() (Config, error) {
 		AdminDatabaseURL:           getenv("CASHX_ADMIN_DATABASE_URL", ""),
 		SessionSecret:              getenv("CASHX_SESSION_SECRET", ""),
 		ClickTokenSecret:           getenv("CASHX_CLICK_TOKEN_SECRET", ""),
-		S3AccessKey:                getenv("CASHX_S3_ACCESS_KEY", ""),
-		S3SecretKey:                getenv("CASHX_S3_SECRET_KEY", ""),
 		IntegrationKeyEncryptionKey: getenv("CASHX_INTEGRATION_KEY_ENCRYPTION_KEY", ""),
 		AdminPassword:              getenv("CASHX_ADMIN_PASSWORD", ""),
 	}
@@ -132,8 +121,6 @@ func (c Config) validate() error {
 		"CASHX_ADMIN_DATABASE_URL":            c.AdminDatabaseURL,
 		"CASHX_SESSION_SECRET":                c.SessionSecret,
 		"CASHX_CLICK_TOKEN_SECRET":            c.ClickTokenSecret,
-		"CASHX_S3_ACCESS_KEY":                 c.S3AccessKey,
-		"CASHX_S3_SECRET_KEY":                 c.S3SecretKey,
 		"CASHX_INTEGRATION_KEY_ENCRYPTION_KEY": c.IntegrationKeyEncryptionKey,
 		"CASHX_ADMIN_PASSWORD":                c.AdminPassword,
 	}

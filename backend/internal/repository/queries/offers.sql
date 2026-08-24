@@ -159,5 +159,8 @@ DELETE FROM source_groups WHERE id = $1;
 -- name: CountSourcesInGroup :one
 SELECT count(*) FROM tracking_links WHERE group_id = $1;
 
+-- name: UpdateAllAccessRatesByPartner :exec
+UPDATE partner_offer_accesses SET rate_bps = $2, updated_at = now() WHERE partner_id = $1;
+
 -- name: GetAccessByID :one
 SELECT id, partner_id, offer_id, rate_bps, status, created_at, updated_at FROM partner_offer_accesses WHERE id = $1;

@@ -139,7 +139,6 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 			r.Delete("/admin/announcements/{id}", w.AdminAnnouncementDelete)
 			r.Get("/admin/platform/branding", w.AdminBrandingGet)
 			r.Put("/admin/platform/branding", w.AdminBrandingPut)
-			r.Post("/admin/media", s.AdminMediaUpload)
 		})
 
 		// Admin: audit (all staff roles can read the trail).

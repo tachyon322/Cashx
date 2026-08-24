@@ -14,7 +14,6 @@ import (
 
 	"cashx/internal/api"
 	"cashx/internal/auth"
-	"cashx/internal/media"
 	"cashx/internal/platform"
 	"cashx/internal/repository"
 
@@ -59,19 +58,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	mediaStore, err := media.New(cfg)
-	if err != nil {
-		log.Error("init media store", "err", err)
-		os.Exit(1)
-	}
-	if err := mediaStore.EnsureBucket(ctx); err != nil {
-		log.Warn("media bucket not ready (uploads will fail until MinIO is up)", "err", err)
-	}
-
 	seedAdmin(ctx, log, cfg, limenAuth)
 
 	srv := api.New(cfg, log, db, limenAuth)
-	srv.Media = mediaStore
 	handler := srv.Router(rdb)
 
 	httpSrv := &http.Server{

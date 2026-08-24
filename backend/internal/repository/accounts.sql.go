@@ -373,7 +373,7 @@ func (q *Queries) ListAccessRatesAll(ctx context.Context) ([]ListAccessRatesAllR
 }
 
 const listPartnerProfilesAdmin = `-- name: ListPartnerProfilesAdmin :many
-SELECT p.id, p.user_id, p.referral_code, p.is_approved, p.is_blocked, p.telegram_user_id, p.comment, p.created_at,
+SELECT p.id, p.user_id, p.referral_code, p.is_approved, p.is_blocked, p.revshare_percent_bps, p.telegram_user_id, p.comment, p.created_at,
        u.email, u.name,
        w.available_kopecks, w.reserved_kopecks
 FROM partner_profiles p
@@ -393,18 +393,19 @@ type ListPartnerProfilesAdminParams struct {
 }
 
 type ListPartnerProfilesAdminRow struct {
-	ID               string             `json:"id"`
-	UserID           string             `json:"user_id"`
-	ReferralCode     string             `json:"referral_code"`
-	IsApproved       bool               `json:"is_approved"`
-	IsBlocked        bool               `json:"is_blocked"`
-	TelegramUserID   pgtype.Int8        `json:"telegram_user_id"`
-	Comment          pgtype.Text        `json:"comment"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	Email            string             `json:"email"`
-	Name             string             `json:"name"`
-	AvailableKopecks int64              `json:"available_kopecks"`
-	ReservedKopecks  int64              `json:"reserved_kopecks"`
+	ID                 string             `json:"id"`
+	UserID             string             `json:"user_id"`
+	ReferralCode       string             `json:"referral_code"`
+	IsApproved         bool               `json:"is_approved"`
+	IsBlocked          bool               `json:"is_blocked"`
+	RevsharePercentBps int32              `json:"revshare_percent_bps"`
+	TelegramUserID     pgtype.Int8        `json:"telegram_user_id"`
+	Comment            pgtype.Text        `json:"comment"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	Email              string             `json:"email"`
+	Name               string             `json:"name"`
+	AvailableKopecks   int64              `json:"available_kopecks"`
+	ReservedKopecks    int64              `json:"reserved_kopecks"`
 }
 
 func (q *Queries) ListPartnerProfilesAdmin(ctx context.Context, arg ListPartnerProfilesAdminParams) ([]ListPartnerProfilesAdminRow, error) {
@@ -427,6 +428,7 @@ func (q *Queries) ListPartnerProfilesAdmin(ctx context.Context, arg ListPartnerP
 			&i.ReferralCode,
 			&i.IsApproved,
 			&i.IsBlocked,
+			&i.RevsharePercentBps,
 			&i.TelegramUserID,
 			&i.Comment,
 			&i.CreatedAt,

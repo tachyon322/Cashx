@@ -75,7 +75,6 @@ type Querier interface {
 	GetEarningByConversion(ctx context.Context, conversionEventID int64) (CommissionEarning, error)
 	GetIncomingEvent(ctx context.Context, arg GetIncomingEventParams) (GetIncomingEventRow, error)
 	GetIntegrationKeyByKeyID(ctx context.Context, keyID string) (IntegrationKey, error)
-	GetMediaAsset(ctx context.Context, id string) (MediaAsset, error)
 	GetOfferByID(ctx context.Context, id string) (GetOfferByIDRow, error)
 	GetOfferWithProject(ctx context.Context, id string) (GetOfferWithProjectRow, error)
 	GetPartnerAccess(ctx context.Context, arg GetPartnerAccessParams) (PartnerOfferAccess, error)
@@ -112,7 +111,6 @@ type Querier interface {
 	InsertConversion(ctx context.Context, arg InsertConversionParams) (ConversionEvent, error)
 	InsertIncomingEvent(ctx context.Context, arg InsertIncomingEventParams) (InsertIncomingEventRow, error)
 	InsertLedgerEntry(ctx context.Context, arg InsertLedgerEntryParams) (InsertLedgerEntryRow, error)
-	InsertMediaAsset(ctx context.Context, arg InsertMediaAssetParams) (MediaAsset, error)
 	InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessageParams) (OutboxMessage, error)
 	InsertPayoutTransfer(ctx context.Context, arg InsertPayoutTransferParams) (PayoutTransfer, error)
 	InsertReferralReward(ctx context.Context, arg InsertReferralRewardParams) (ReferralReward, error)
@@ -168,6 +166,7 @@ type Querier interface {
 	TouchIntegrationKey(ctx context.Context, keyID string) error
 	UpdateAnnouncement(ctx context.Context, arg UpdateAnnouncementParams) (Announcement, error)
 	UpdateConversionNote(ctx context.Context, arg UpdateConversionNoteParams) error
+	UpdateAllAccessRatesByPartner(ctx context.Context, arg UpdateAllAccessRatesByPartnerParams) error
 	UpdateOffer(ctx context.Context, arg UpdateOfferParams) (UpdateOfferRow, error)
 	UpdatePartnerAccessRate(ctx context.Context, arg UpdatePartnerAccessRateParams) (PartnerOfferAccess, error)
 	UpdatePartnerProfile(ctx context.Context, arg UpdatePartnerProfileParams) (PartnerProfile, error)

@@ -56,14 +56,6 @@ WHERE a.is_published AND a.deleted_at IS NULL
        EXISTS (SELECT 1 FROM announcement_audiences aa WHERE aa.announcement_id = a.id AND aa.partner_id = $2::uuid))
 ON CONFLICT DO NOTHING;
 
--- name: InsertMediaAsset :one
-INSERT INTO media_assets (bucket, key, content_type, size_bytes, uploaded_by)
-VALUES ($1, $2, $3, $4, $5) RETURNING id, bucket, key, content_type, size_bytes, uploaded_by, created_at;
-
--- name: GetMediaAsset :one
-SELECT id, bucket, key, content_type, size_bytes, uploaded_by, created_at
-FROM media_assets WHERE id = $1;
-
 -- name: InsertUserNotification :exec
 INSERT INTO user_notifications (user_id, type, title, body, metadata)
 VALUES ($1, $2, $3, $4, $5);

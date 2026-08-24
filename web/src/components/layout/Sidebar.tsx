@@ -5,7 +5,6 @@ import {
   BadgePercent,
   CircleUserRound,
   Coins,
-  FolderKanban,
   Headphones,
   KeyRound,
   LayoutDashboard,
@@ -38,8 +37,7 @@ const CABINET_NAV: readonly NavItem[] = [
 
 const ADMIN_NAV: readonly NavItem[] = [
   { to: '/admin/partners', label: 'Партнёры', icon: UserCog, roles: ['project_manager', 'support'] },
-  { to: '/admin/projects', label: 'Проекты', icon: FolderKanban, roles: ['project_manager', 'support'] },
-  { to: '/admin/offers', label: 'Офферы', icon: BadgePercent, roles: ['project_manager', 'support'] },
+  { to: '/admin/offers', label: 'Каталог', icon: BadgePercent, roles: ['project_manager', 'support'] },
   { to: '/admin/integration-keys', label: 'Ключи', icon: KeyRound, roles: ['project_manager'] },
   { to: '/admin/withdrawals', label: 'Выводы', icon: ArrowLeftRight, roles: ['finance', 'support'] },
   { to: '/admin/finance', label: 'Финансы', icon: Coins, roles: ['finance'] },
@@ -136,11 +134,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           ))}
         </nav>
 
-        {showExtra && (
+        {/* {showExtra && (
           <div className="flex flex-col gap-3 pt-2">
             <SupportCard />
           </div>
-        )}
+        )} */}
       </div>
     </aside>
   )

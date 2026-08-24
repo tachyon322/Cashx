@@ -169,6 +169,15 @@ export function PartnersPage() {
                 },
               },
               {
+                key: 'revshare',
+                header: 'RevShare',
+                align: 'right',
+                render: (p) => {
+                  const bps = (p as any).revshare_percent_bps ?? 4000
+                  return `${(bps / 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 })}%`
+                },
+              },
+              {
                 key: 'balance',
                 header: 'Баланс',
                 align: 'right',
@@ -221,7 +230,7 @@ export function PartnersPage() {
               onChange={(event) => setPassword(event.target.value)}
             />
           </Field>
-          <Field label="Комиссия, бпс" hint="Опционально; 1% = 100 бпс" htmlFor="pp-commission">
+          <Field label="RevShare, бпс" hint="Глобально для юзера на всех офферах; 1% = 100 бпс · 4000 = 40%. Пусто = 4000 по умолчанию" htmlFor="pp-commission">
             <Input
               id="pp-commission"
               type="number"

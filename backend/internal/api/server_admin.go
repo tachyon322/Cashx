@@ -44,13 +44,14 @@ func (s *Server) AdminPartnersList(w http.ResponseWriter, r *http.Request, param
 }
 
 type adminPartner struct {
-	ID            string        `json:"id"`
-	Name          string        `json:"name"`
-	Email         string        `json:"email"`
-	IsApproved    bool          `json:"is_approved"`
-	IsBlocked     bool          `json:"is_blocked"`
-	BalanceKopecks int64        `json:"balance_kopecks"`
-	Rates         []struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Email              string `json:"email"`
+	IsApproved         bool   `json:"is_approved"`
+	IsBlocked          bool   `json:"is_blocked"`
+	BalanceKopecks     int64  `json:"balance_kopecks"`
+	RevsharePercentBps int    `json:"revshare_percent_bps"`
+	Rates              []struct {
 		OfferID string `json:"offer_id"`
 		RateBps int    `json:"rate_bps"`
 	} `json:"rates"`
@@ -61,7 +62,7 @@ func adminPartnerFrom(p admin.PartnerRow) adminPartner {
 	out := adminPartner{
 		ID: p.ID, Name: p.Name, Email: p.Email,
 		IsApproved: p.IsApproved, IsBlocked: p.IsBlocked,
-		BalanceKopecks: p.BalanceKopecks, CreatedAt: p.CreatedAt,
+		BalanceKopecks: p.BalanceKopecks, RevsharePercentBps: p.RevsharePercentBps, CreatedAt: p.CreatedAt,
 	}
 	for _, r := range p.Rates {
 		out.Rates = append(out.Rates, struct {
@@ -152,17 +153,18 @@ func (s *Server) AdminPartnerGet(w http.ResponseWriter, r *http.Request, id stri
 // AdminPartnerUpdate handles PATCH /admin/partners/{id}.
 func (s *Server) AdminPartnerUpdate(w http.ResponseWriter, r *http.Request, id string) {
 	var body struct {
-		Name       *string `json:"name"`
-		Email      *string `json:"email"`
-		Password   *string `json:"password"`
-		IsApproved *bool   `json:"is_approved"`
-		IsBlocked  *bool   `json:"is_blocked"`
+		Name               *string `json:"name"`
+		Email              *string `json:"email"`
+		Password           *string `json:"password"`
+		IsApproved         *bool   `json:"is_approved"`
+		IsBlocked          *bool   `json:"is_blocked"`
+		RevsharePercentBps *int    `json:"revshare_percent_bps"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		writeErr(s.Log, w, err)
 		return
 	}
-	row, err := s.Admin.UpdatePartner(r.Context(), actorID(r), id, body.Name, body.Email, body.Password, body.IsApproved, body.IsBlocked)
+	row, err := s.Admin.UpdatePartner(r.Context(), actorID(r), id, body.Name, body.Email, body.Password, body.IsApproved, body.IsBlocked, body.RevsharePercentBps)
 	if err != nil {
 		writeErr(s.Log, w, err)
 		return
@@ -303,7 +305,7 @@ func (s *Server) AdminOfferCreate(w http.ResponseWriter, r *http.Request) {
 		Description    *string `json:"description"`
 		DestinationURL *string `json:"destination_url"`
 		Status         *string `json:"status"`
-		RateBps        int     `json:"rate_bps"`
+		RateBps        *int    `json:"rate_bps"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		writeErr(s.Log, w, err)
@@ -313,7 +315,11 @@ func (s *Server) AdminOfferCreate(w http.ResponseWriter, r *http.Request) {
 	if body.Status != nil {
 		status = *body.Status
 	}
-	card, err := s.Offers.Create(r.Context(), actorID(r), body.ProjectID, body.Name, body.Category, body.Description, body.DestinationURL, status, body.RateBps)
+	rate := 0
+	if body.RateBps != nil {
+		rate = *body.RateBps
+	}
+	card, err := s.Offers.Create(r.Context(), actorID(r), body.ProjectID, body.Name, body.Category, body.Description, body.DestinationURL, status, rate)
 	if err != nil {
 		writeErr(s.Log, w, err)
 		return
@@ -752,9 +758,9 @@ func (s *Server) AdminBrandingGet(w http.ResponseWriter, r *http.Request) {
 // AdminBrandingPut handles PUT /admin/platform/branding.
 func (s *Server) AdminBrandingPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name          *string `json:"name"`
-		TelegramURL   *string `json:"telegram_url"`
-		AvatarMediaID *string `json:"avatar_media_id"`
+		Name        *string `json:"name"`
+		TelegramURL *string `json:"telegram_url"`
+		AvatarURL   *string `json:"avatar_url"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		writeErr(s.Log, w, err)
@@ -764,44 +770,12 @@ func (s *Server) AdminBrandingPut(w http.ResponseWriter, r *http.Request) {
 	if body.Name != nil {
 		name = *body.Name
 	}
-	b, err := s.Admin.UpdateBranding(r.Context(), actorID(r), name, body.TelegramURL, body.AvatarMediaID)
+	b, err := s.Admin.UpdateBranding(r.Context(), actorID(r), name, body.TelegramURL, body.AvatarURL)
 	if err != nil {
 		writeErr(s.Log, w, err)
 		return
 	}
 	respond(w, http.StatusOK, b)
-}
-
-// AdminMediaUpload handles POST /admin/media (outside OpenAPI; multipart).
-func (s *Server) AdminMediaUpload(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		respond(w, http.StatusBadRequest, errBody("invalid_upload"))
-		return
-	}
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		respond(w, http.StatusBadRequest, errBody("file required"))
-		return
-	}
-	defer file.Close()
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	key, err := s.Media.Upload(r.Context(), file, header.Size, contentType)
-	if err != nil {
-		writeErr(s.Log, w, err)
-		return
-	}
-	mediaID, url, err := s.Admin.InsertMedia(r.Context(), actorID(r), s.Cfg.S3Bucket, key, contentType, header.Size)
-	if err != nil {
-		writeErr(s.Log, w, err)
-		return
-	}
-	respond(w, http.StatusCreated, struct {
-		MediaId string `json:"media_id"`
-		Url     string `json:"url"`
-	}{MediaId: mediaID, Url: url})
 }
 
 // AdminAuditList handles GET /admin/audit.
