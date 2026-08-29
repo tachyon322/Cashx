@@ -31,6 +31,46 @@ services:
       timeout: 3s
       retries: 20
 
+  api:
+    build: ./backend
+    container_name: cashx-api
+    command: cashx-api
+    working_dir: /app
+    env_file: ./backend/.env
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redirect:
+    build: ./backend
+    container_name: cashx-redirect
+    command: cashx-redirect
+    working_dir: /app
+    env_file: ./backend/.env
+    ports:
+      - "8081:8081"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: ./backend
+    container_name: cashx-worker
+    command: cashx-worker
+    working_dir: /app
+    env_file: ./backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   cashx_pgdata:
   cashx_redisdata:
