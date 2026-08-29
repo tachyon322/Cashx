@@ -80,6 +80,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   }
 
   const showExtra = Boolean(user?.partner)
+  void showExtra
 
   return (
     <aside
