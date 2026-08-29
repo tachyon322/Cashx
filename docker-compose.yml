@@ -85,6 +85,14 @@ services:
       redis:
         condition: service_healthy
 
+  web:
+    build: ./web
+    container_name: cashx-web
+    ports:
+      - "4000:80"
+    depends_on:
+      - api
+
 volumes:
   cashx_pgdata:
   cashx_redisdata:
