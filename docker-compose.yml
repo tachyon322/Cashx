@@ -43,6 +43,8 @@ services:
       CASHX_REDIS_ADDR: redis:6379
     ports:
       - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
