@@ -65,6 +65,8 @@ function SupportCard() {
   )
 }
 
+void SupportCard
+
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user } = useAuth()
   const staffRoles = user?.staff?.roles ?? []
