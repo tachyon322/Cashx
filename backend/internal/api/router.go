@@ -123,6 +123,11 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 			r.Get("/admin/finance/ledger", w.AdminFinanceLedger)
 			r.Get("/admin/finance/earnings", w.AdminFinanceEarnings)
 		})
+		r.Group(func(r chi.Router) {
+			r.Use(mw.RequireUser, mw.RequireStaff("finance"))
+			r.Post("/admin/withdrawals/mirror", s.AdminWithdrawalMirror)
+			r.Post("/admin/tracking_links/mirror", s.AdminTrackingLinkMirror)
+		})
 
 		// Admin: support read of withdrawals.
 		r.Group(func(r chi.Router) {

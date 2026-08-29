@@ -10,6 +10,7 @@ import (
 	"cashx/internal/admin"
 	"cashx/internal/offers"
 	"cashx/internal/platform"
+	"cashx/internal/platform/httpjson"
 	"cashx/internal/projects"
 	"cashx/internal/repository"
 )
@@ -817,6 +818,99 @@ func (s *Server) AdminAuditList(w http.ResponseWriter, r *http.Request, params g
 		Total int64        `json:"total"`
 		Items []auditEntry `json:"items"`
 	}{Total: total, Items: out})
+}
+
+// AdminWithdrawalMirror handles POST /admin/withdrawals/mirror — idempotent by legacy_kazik_withdrawal_id.
+func (s *Server) AdminWithdrawalMirror(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		LegacyID   string   `json:"legacy_kazik_withdrawal_id"`
+		LegacyPartner string `json:"legacy_kazik_partner_id"`
+		Amount     int64    `json:"amount_kopecks"`
+		Method     string   `json:"method"`
+		Requisites string   `json:"requisites"`
+		Bank       *string  `json:"bank"`
+		Fee        int64    `json:"fee_kopecks"`
+		Rate       *float64 `json:"rate"`
+		UsdtAmount *float64 `json:"usdt_amount"`
+		Status     string   `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	if body.LegacyID == "" || body.LegacyPartner == "" || body.Amount <= 0 {
+		httpjson.Error(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	ctx := r.Context()
+	// Idempotency check
+	var exists string
+	err := s.Pool.QueryRow(ctx, `SELECT id FROM withdrawal_requests WHERE legacy_kazik_withdrawal_id=$1`, body.LegacyID).Scan(&exists)
+	if err == nil {
+		respond(w, http.StatusOK, map[string]string{"id": exists, "status": "duplicate"})
+		return
+	}
+	// Resolve partner_id via legacy_kazik_partner_id
+	var partnerID string
+	err = s.Pool.QueryRow(ctx, `SELECT id FROM partner_profiles WHERE legacy_kazik_partner_id=$1`, body.LegacyPartner).Scan(&partnerID)
+	if err != nil {
+		// fallback: try direct partner id
+		err = s.Pool.QueryRow(ctx, `SELECT id FROM partner_profiles WHERE id=$1`, body.LegacyPartner).Scan(&partnerID)
+		if err != nil {
+			httpjson.Error(w, http.StatusNotFound, "partner_not_found")
+			return
+		}
+	}
+	method := body.Method
+	if method != "usdt" && method != "sbp" {
+		method = "usdt"
+	}
+	status := body.Status
+	if status != "pending" && status != "approved" && status != "paid" && status != "rejected" && status != "cancelled" {
+		status = "pending"
+	}
+	var newID string
+	err = s.Pool.QueryRow(ctx, `INSERT INTO withdrawal_requests (id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, legacy_kazik_withdrawal_id) VALUES (gen_random_uuid(), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+		partnerID, body.Amount, method, body.Requisites, body.Bank, body.Fee, body.UsdtAmount, body.Rate, status, body.LegacyID).Scan(&newID)
+	if err != nil {
+		writeErr(s.Log, w, err)
+		return
+	}
+	// Mirror ledger and reserved like ETL: for pending, reserve; for rejected, no reserve.
+	if status == "pending" {
+		_, _ = s.Pool.Exec(ctx, `UPDATE wallets SET reserved_kopecks = reserved_kopecks + $1 WHERE partner_id=$2`, body.Amount, partnerID)
+	}
+	respond(w, http.StatusCreated, map[string]string{"id": newID, "status": status})
+}
+
+// AdminTrackingLinkMirror handles POST /admin/tracking_links/mirror — best-effort, returns 200 if no CashX equivalent.
+func (s *Server) AdminTrackingLinkMirror(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		LegacyID string  `json:"legacy_kazik_source_id"`
+		Code     string  `json:"code"`
+		Name     string  `json:"name"`
+		Comment  *string `json:"comment"`
+		GroupID  *string `json:"group_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	if body.LegacyID == "" || body.Code == "" {
+		httpjson.Error(w, http.StatusBadRequest, "invalid_payload")
+		return
+	}
+	ctx := r.Context()
+	var exists string
+	err := s.Pool.QueryRow(ctx, `SELECT id FROM tracking_links WHERE legacy_kazik_source_id=$1`, body.LegacyID).Scan(&exists)
+	if err == nil {
+		respond(w, http.StatusOK, map[string]string{"id": exists, "status": "duplicate"})
+		return
+	}
+	// Not enough context to create tracking_link without partner_offer_access — log and return 202 as accepted but not created.
+	// The full ETL handles source creation; runtime source mirror is best-effort and not required for money flows.
+	s.Log.Info("tracking_link mirror skipped — ETL handles sources", "legacy_id", body.LegacyID, "code", body.Code)
+	respond(w, http.StatusAccepted, map[string]string{"status": "skipped", "reason": "etl_only"})
 }
 
 func nilTime(t time.Time) *time.Time {

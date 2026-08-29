@@ -1,0 +1,51 @@
+{
+  "partners": {
+    "total": 2,
+    "inserted": 0,
+    "skipped": 2,
+    "failed": 0
+  },
+  "groups": {
+    "total": 0,
+    "inserted": 0,
+    "skipped": 0,
+    "failed": 0
+  },
+  "sources": {
+    "total": 1,
+    "inserted": 0,
+    "skipped": 1,
+    "failed": 0
+  },
+  "sources_skipped_promo": 1,
+  "clicks": {
+    "total": 10,
+    "inserted": 0,
+    "skipped": 10,
+    "failed": 0
+  },
+  "signups": {
+    "total": 2,
+    "inserted": 1,
+    "skipped": 1,
+    "failed": 0
+  },
+  "transactions": {
+    "total": 0,
+    "inserted": 0,
+    "skipped": 0,
+    "failed": 0
+  },
+  "withdrawals": {
+    "total": 0,
+    "inserted": 0,
+    "skipped": 0,
+    "failed": 0
+  },
+  "promo_skipped": 1,
+  "clash_resolutions": null,
+  "errors": null,
+  "warnings": [
+    "payout_rules sync skipped — ensure redis keys affiliate:usdt_rate etc manually synced via cron"
+  ]
+}
