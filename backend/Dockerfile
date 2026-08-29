@@ -3,12 +3,13 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o /cashx-api ./cmd/api && go build -o /cashx-redirect ./cmd/redirect && go build -o /cashx-worker ./cmd/worker
+RUN go build -o /cashx-api ./cmd/api && go build -o /cashx-redirect ./cmd/redirect && go build -o /cashx-worker ./cmd/worker && go build -o /cashx-migrate ./cmd/migrate && go build -o /cashx-seed-kazik ./cmd/seed-kazik
 
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates
+FROM golang:1.26-alpine
 COPY --from=build /cashx-api /usr/local/bin/cashx-api
 COPY --from=build /cashx-redirect /usr/local/bin/cashx-redirect
 COPY --from=build /cashx-worker /usr/local/bin/cashx-worker
+COPY --from=build /cashx-migrate /usr/local/bin/cashx-migrate
+COPY --from=build /cashx-seed-kazik /usr/local/bin/cashx-seed-kazik
 WORKDIR /app
 CMD ["cashx-api"]
