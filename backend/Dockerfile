@@ -11,5 +11,6 @@ COPY --from=build /cashx-redirect /usr/local/bin/cashx-redirect
 COPY --from=build /cashx-worker /usr/local/bin/cashx-worker
 COPY --from=build /cashx-migrate /usr/local/bin/cashx-migrate
 COPY --from=build /cashx-seed-kazik /usr/local/bin/cashx-seed-kazik
+COPY --from=build /app/migrations /app/migrations
 WORKDIR /app
 CMD ["cashx-api"]
