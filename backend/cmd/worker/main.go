@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"cashx/internal/platform"
+	"cashx/internal/tracking"
 	"cashx/internal/worker"
 )
 
@@ -29,7 +30,16 @@ func main() {
 	}
 	defer db.Close()
 
-	log.Info("worker starting")
-	worker.New(db, cfg, log).Run(ctx)
+	rdb, err := platform.NewRedis(ctx, cfg.RedisAddr)
+	if err != nil {
+		log.Warn("connect redis failed, running without counters", "err", err)
+		log.Info("worker starting")
+		worker.New(db, cfg, log).Run(ctx)
+	} else {
+		defer rdb.Close()
+		tracking.DefaultCounters = tracking.NewCounters(rdb)
+		log.Info("worker starting with redis counters")
+		worker.NewWithRedis(db, cfg, log, rdb).Run(ctx)
+	}
 	log.Info("worker stopped")
 }

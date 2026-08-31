@@ -76,6 +76,19 @@ func (q *Queries) CountSourcesInGroup(ctx context.Context, groupID pgtype.UUID) 
 	return count, err
 }
 
+const countTrackingLinksByPartner = `-- name: CountTrackingLinksByPartner :one
+SELECT count(*) FROM tracking_links tl
+JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
+WHERE a.partner_id = $1
+`
+
+func (q *Queries) CountTrackingLinksByPartner(ctx context.Context, partnerID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countTrackingLinksByPartner, partnerID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createOffer = `-- name: CreateOffer :one
 INSERT INTO offers (project_id, name, category, description, destination_url, status)
 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, project_id, name, category, description, destination_url, status, created_at, updated_at
@@ -185,7 +198,7 @@ func (q *Queries) CreatePartnerAccess(ctx context.Context, arg CreatePartnerAcce
 
 const createSourceGroup = `-- name: CreateSourceGroup :one
 INSERT INTO source_groups (partner_id, name, comment)
-VALUES ($1, $2, $3) RETURNING id, partner_id, name, comment, created_at, updated_at
+VALUES ($1, $2, $3) RETURNING id, partner_id, name, comment, legacy_kazik_group_id, created_at, updated_at
 `
 
 type CreateSourceGroupParams struct {
@@ -202,6 +215,7 @@ func (q *Queries) CreateSourceGroup(ctx context.Context, arg CreateSourceGroupPa
 		&i.PartnerID,
 		&i.Name,
 		&i.Comment,
+		&i.LegacyKazikGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -211,7 +225,7 @@ func (q *Queries) CreateSourceGroup(ctx context.Context, arg CreateSourceGroupPa
 const createTrackingLink = `-- name: CreateTrackingLink :one
 INSERT INTO tracking_links (partner_offer_access_id, code, name, comment, group_id, is_default)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, created_at, updated_at
+RETURNING id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id, created_at, updated_at
 `
 
 type CreateTrackingLinkParams struct {
@@ -242,6 +256,68 @@ func (q *Queries) CreateTrackingLink(ctx context.Context, arg CreateTrackingLink
 		&i.GroupID,
 		&i.IsDefault,
 		&i.IsActive,
+		&i.Type,
+		&i.RegistrationBonus,
+		&i.Domain,
+		&i.RedirectID,
+		&i.LegacyKazikSourceID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createTrackingLinkFull = `-- name: CreateTrackingLinkFull :one
+INSERT INTO tracking_links (partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::text, 'link'), $9, $10, $11, $12)
+RETURNING id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id, created_at, updated_at
+`
+
+type CreateTrackingLinkFullParams struct {
+	PartnerOfferAccessID string      `json:"partner_offer_access_id"`
+	Code                 string      `json:"code"`
+	Name                 string      `json:"name"`
+	Comment              pgtype.Text `json:"comment"`
+	GroupID              pgtype.UUID `json:"group_id"`
+	IsDefault            bool        `json:"is_default"`
+	IsActive             bool        `json:"is_active"`
+	Type                 pgtype.Text `json:"type"`
+	RegistrationBonus    pgtype.Int4 `json:"registration_bonus"`
+	Domain               pgtype.Text `json:"domain"`
+	RedirectID           pgtype.UUID `json:"redirect_id"`
+	LegacyKazikSourceID  pgtype.Text `json:"legacy_kazik_source_id"`
+}
+
+func (q *Queries) CreateTrackingLinkFull(ctx context.Context, arg CreateTrackingLinkFullParams) (TrackingLink, error) {
+	row := q.db.QueryRow(ctx, createTrackingLinkFull,
+		arg.PartnerOfferAccessID,
+		arg.Code,
+		arg.Name,
+		arg.Comment,
+		arg.GroupID,
+		arg.IsDefault,
+		arg.IsActive,
+		arg.Type,
+		arg.RegistrationBonus,
+		arg.Domain,
+		arg.RedirectID,
+		arg.LegacyKazikSourceID,
+	)
+	var i TrackingLink
+	err := row.Scan(
+		&i.ID,
+		&i.PartnerOfferAccessID,
+		&i.Code,
+		&i.Name,
+		&i.Comment,
+		&i.GroupID,
+		&i.IsDefault,
+		&i.IsActive,
+		&i.Type,
+		&i.RegistrationBonus,
+		&i.Domain,
+		&i.RedirectID,
+		&i.LegacyKazikSourceID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -305,8 +381,7 @@ func (q *Queries) GetCurrentTerms(ctx context.Context, offerID string) (OfferTer
 }
 
 const getDefaultTrackingLinkByAccessID = `-- name: GetDefaultTrackingLinkByAccessID :one
-SELECT id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, created_at, updated_at
-FROM tracking_links
+SELECT id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id, created_at, updated_at FROM tracking_links
 WHERE partner_offer_access_id = $1
 ORDER BY is_default DESC, created_at
 LIMIT 1
@@ -324,6 +399,11 @@ func (q *Queries) GetDefaultTrackingLinkByAccessID(ctx context.Context, partnerO
 		&i.GroupID,
 		&i.IsDefault,
 		&i.IsActive,
+		&i.Type,
+		&i.RegistrationBonus,
+		&i.Domain,
+		&i.RedirectID,
+		&i.LegacyKazikSourceID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -430,9 +510,19 @@ func (q *Queries) GetPartnerAccess(ctx context.Context, arg GetPartnerAccessPara
 	return i, err
 }
 
+const getRegistrationBonusByCode = `-- name: GetRegistrationBonusByCode :one
+SELECT registration_bonus FROM tracking_links WHERE code = $1 AND is_active = true LIMIT 1
+`
+
+func (q *Queries) GetRegistrationBonusByCode(ctx context.Context, code string) (pgtype.Int4, error) {
+	row := q.db.QueryRow(ctx, getRegistrationBonusByCode, code)
+	var registration_bonus pgtype.Int4
+	err := row.Scan(&registration_bonus)
+	return registration_bonus, err
+}
+
 const getSourceGroupByID = `-- name: GetSourceGroupByID :one
-SELECT id, partner_id, name, comment, created_at, updated_at
-FROM source_groups WHERE id = $1
+SELECT id, partner_id, name, comment, legacy_kazik_group_id, created_at, updated_at FROM source_groups WHERE id = $1
 `
 
 func (q *Queries) GetSourceGroupByID(ctx context.Context, id string) (SourceGroup, error) {
@@ -443,6 +533,7 @@ func (q *Queries) GetSourceGroupByID(ctx context.Context, id string) (SourceGrou
 		&i.PartnerID,
 		&i.Name,
 		&i.Comment,
+		&i.LegacyKazikGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -450,7 +541,7 @@ func (q *Queries) GetSourceGroupByID(ctx context.Context, id string) (SourceGrou
 }
 
 const getTrackingLinkByCode = `-- name: GetTrackingLinkByCode :one
-SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.is_active, tl.created_at,
+SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.is_active, tl.type, tl.domain, tl.redirect_id, tl.registration_bonus, tl.created_at,
        a.partner_id, a.offer_id, a.status AS access_status,
        o.destination_url AS offer_destination_url,
        p.destination_url AS project_destination_url
@@ -466,6 +557,10 @@ type GetTrackingLinkByCodeRow struct {
 	PartnerOfferAccessID  string             `json:"partner_offer_access_id"`
 	Code                  string             `json:"code"`
 	IsActive              bool               `json:"is_active"`
+	Type                  string             `json:"type"`
+	Domain                pgtype.Text        `json:"domain"`
+	RedirectID            pgtype.UUID        `json:"redirect_id"`
+	RegistrationBonus     pgtype.Int4        `json:"registration_bonus"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
 	PartnerID             string             `json:"partner_id"`
 	OfferID               string             `json:"offer_id"`
@@ -482,6 +577,10 @@ func (q *Queries) GetTrackingLinkByCode(ctx context.Context, code string) (GetTr
 		&i.PartnerOfferAccessID,
 		&i.Code,
 		&i.IsActive,
+		&i.Type,
+		&i.Domain,
+		&i.RedirectID,
+		&i.RegistrationBonus,
 		&i.CreatedAt,
 		&i.PartnerID,
 		&i.OfferID,
@@ -492,9 +591,35 @@ func (q *Queries) GetTrackingLinkByCode(ctx context.Context, code string) (GetTr
 	return i, err
 }
 
+const getTrackingLinkByCodeExtended = `-- name: GetTrackingLinkByCodeExtended :one
+SELECT id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id, created_at, updated_at FROM tracking_links WHERE code = $1
+`
+
+func (q *Queries) GetTrackingLinkByCodeExtended(ctx context.Context, code string) (TrackingLink, error) {
+	row := q.db.QueryRow(ctx, getTrackingLinkByCodeExtended, code)
+	var i TrackingLink
+	err := row.Scan(
+		&i.ID,
+		&i.PartnerOfferAccessID,
+		&i.Code,
+		&i.Name,
+		&i.Comment,
+		&i.GroupID,
+		&i.IsDefault,
+		&i.IsActive,
+		&i.Type,
+		&i.RegistrationBonus,
+		&i.Domain,
+		&i.RedirectID,
+		&i.LegacyKazikSourceID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getTrackingLinkByID = `-- name: GetTrackingLinkByID :one
-SELECT id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, created_at, updated_at
-FROM tracking_links WHERE id = $1
+SELECT id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id, created_at, updated_at FROM tracking_links WHERE id = $1
 `
 
 func (q *Queries) GetTrackingLinkByID(ctx context.Context, id string) (TrackingLink, error) {
@@ -509,6 +634,11 @@ func (q *Queries) GetTrackingLinkByID(ctx context.Context, id string) (TrackingL
 		&i.GroupID,
 		&i.IsDefault,
 		&i.IsActive,
+		&i.Type,
+		&i.RegistrationBonus,
+		&i.Domain,
+		&i.RedirectID,
+		&i.LegacyKazikSourceID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -744,8 +874,7 @@ func (q *Queries) ListPartnerAccessesWithOffer(ctx context.Context, partnerID st
 }
 
 const listSourceGroupsByPartner = `-- name: ListSourceGroupsByPartner :many
-SELECT id, partner_id, name, comment, created_at, updated_at
-FROM source_groups WHERE partner_id = $1 ORDER BY name
+SELECT id, partner_id, name, comment, legacy_kazik_group_id, created_at, updated_at FROM source_groups WHERE partner_id = $1 ORDER BY name
 `
 
 func (q *Queries) ListSourceGroupsByPartner(ctx context.Context, partnerID string) ([]SourceGroup, error) {
@@ -762,6 +891,7 @@ func (q *Queries) ListSourceGroupsByPartner(ctx context.Context, partnerID strin
 			&i.PartnerID,
 			&i.Name,
 			&i.Comment,
+			&i.LegacyKazikGroupID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -776,8 +906,7 @@ func (q *Queries) ListSourceGroupsByPartner(ctx context.Context, partnerID strin
 }
 
 const listTrackingLinksByAccessID = `-- name: ListTrackingLinksByAccessID :many
-SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.name, tl.comment, tl.group_id, tl.is_default, tl.is_active, tl.created_at, tl.updated_at,
-       g.name AS group_name
+SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.name, tl.comment, tl.group_id, tl.is_default, tl.is_active, tl.type, tl.registration_bonus, tl.domain, tl.redirect_id, tl.legacy_kazik_source_id, tl.created_at, tl.updated_at, g.name AS group_name
 FROM tracking_links tl
 LEFT JOIN source_groups g ON g.id = tl.group_id
 WHERE tl.partner_offer_access_id = $1
@@ -793,6 +922,11 @@ type ListTrackingLinksByAccessIDRow struct {
 	GroupID              pgtype.UUID        `json:"group_id"`
 	IsDefault            bool               `json:"is_default"`
 	IsActive             bool               `json:"is_active"`
+	Type                 string             `json:"type"`
+	RegistrationBonus    pgtype.Int4        `json:"registration_bonus"`
+	Domain               pgtype.Text        `json:"domain"`
+	RedirectID           pgtype.UUID        `json:"redirect_id"`
+	LegacyKazikSourceID  pgtype.Text        `json:"legacy_kazik_source_id"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 	GroupName            pgtype.Text        `json:"group_name"`
@@ -816,9 +950,157 @@ func (q *Queries) ListTrackingLinksByAccessID(ctx context.Context, partnerOfferA
 			&i.GroupID,
 			&i.IsDefault,
 			&i.IsActive,
+			&i.Type,
+			&i.RegistrationBonus,
+			&i.Domain,
+			&i.RedirectID,
+			&i.LegacyKazikSourceID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.GroupName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTrackingLinksByPartner = `-- name: ListTrackingLinksByPartner :many
+SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.name, tl.comment, tl.group_id, tl.is_default, tl.is_active, tl.type, tl.registration_bonus, tl.domain, tl.redirect_id, tl.legacy_kazik_source_id, tl.created_at, tl.updated_at FROM tracking_links tl
+JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
+WHERE a.partner_id = $1
+ORDER BY tl.created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListTrackingLinksByPartnerParams struct {
+	PartnerID string `json:"partner_id"`
+	Limit     int32  `json:"limit"`
+	Offset    int32  `json:"offset"`
+}
+
+func (q *Queries) ListTrackingLinksByPartner(ctx context.Context, arg ListTrackingLinksByPartnerParams) ([]TrackingLink, error) {
+	rows, err := q.db.Query(ctx, listTrackingLinksByPartner, arg.PartnerID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TrackingLink
+	for rows.Next() {
+		var i TrackingLink
+		if err := rows.Scan(
+			&i.ID,
+			&i.PartnerOfferAccessID,
+			&i.Code,
+			&i.Name,
+			&i.Comment,
+			&i.GroupID,
+			&i.IsDefault,
+			&i.IsActive,
+			&i.Type,
+			&i.RegistrationBonus,
+			&i.Domain,
+			&i.RedirectID,
+			&i.LegacyKazikSourceID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resolvePromoCode = `-- name: ResolvePromoCode :one
+SELECT id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id, created_at, updated_at FROM tracking_links WHERE code = $1 AND type = 'promo' AND is_active = true LIMIT 1
+`
+
+func (q *Queries) ResolvePromoCode(ctx context.Context, code string) (TrackingLink, error) {
+	row := q.db.QueryRow(ctx, resolvePromoCode, code)
+	var i TrackingLink
+	err := row.Scan(
+		&i.ID,
+		&i.PartnerOfferAccessID,
+		&i.Code,
+		&i.Name,
+		&i.Comment,
+		&i.GroupID,
+		&i.IsDefault,
+		&i.IsActive,
+		&i.Type,
+		&i.RegistrationBonus,
+		&i.Domain,
+		&i.RedirectID,
+		&i.LegacyKazikSourceID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const searchTrackingLinks = `-- name: SearchTrackingLinks :many
+SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.name, tl.comment, tl.group_id, tl.is_default, tl.is_active, tl.type, tl.registration_bonus, tl.domain, tl.redirect_id, tl.legacy_kazik_source_id, tl.created_at, tl.updated_at FROM tracking_links tl
+JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
+WHERE a.partner_id = $1
+  AND ($2 = '' OR tl.name ILIKE '%' || $2 || '%' OR tl.code ILIKE '%' || $2 || '%')
+  AND ($3 = '' OR tl.type = $3)
+  AND ($4::uuid IS NULL OR tl.group_id = $4)
+  AND ($5::uuid IS NULL OR tl.redirect_id = $5)
+ORDER BY tl.created_at DESC
+LIMIT $6 OFFSET $7
+`
+
+type SearchTrackingLinksParams struct {
+	PartnerID string      `json:"partner_id"`
+	Column2   interface{} `json:"column_2"`
+	Column3   interface{} `json:"column_3"`
+	Column4   string      `json:"column_4"`
+	Column5   string      `json:"column_5"`
+	Limit     int32       `json:"limit"`
+	Offset    int32       `json:"offset"`
+}
+
+func (q *Queries) SearchTrackingLinks(ctx context.Context, arg SearchTrackingLinksParams) ([]TrackingLink, error) {
+	rows, err := q.db.Query(ctx, searchTrackingLinks,
+		arg.PartnerID,
+		arg.Column2,
+		arg.Column3,
+		arg.Column4,
+		arg.Column5,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TrackingLink
+	for rows.Next() {
+		var i TrackingLink
+		if err := rows.Scan(
+			&i.ID,
+			&i.PartnerOfferAccessID,
+			&i.Code,
+			&i.Name,
+			&i.Comment,
+			&i.GroupID,
+			&i.IsDefault,
+			&i.IsActive,
+			&i.Type,
+			&i.RegistrationBonus,
+			&i.Domain,
+			&i.RedirectID,
+			&i.LegacyKazikSourceID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -837,6 +1119,20 @@ WHERE id = $1
 
 func (q *Queries) SetDefaultTrackingLink(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, setDefaultTrackingLink, id)
+	return err
+}
+
+const updateAllAccessRatesByPartner = `-- name: UpdateAllAccessRatesByPartner :exec
+UPDATE partner_offer_accesses SET rate_bps = $2, updated_at = now() WHERE partner_id = $1
+`
+
+type UpdateAllAccessRatesByPartnerParams struct {
+	PartnerID string `json:"partner_id"`
+	RateBps   int32  `json:"rate_bps"`
+}
+
+func (q *Queries) UpdateAllAccessRatesByPartner(ctx context.Context, arg UpdateAllAccessRatesByPartnerParams) error {
+	_, err := q.db.Exec(ctx, updateAllAccessRatesByPartner, arg.PartnerID, arg.RateBps)
 	return err
 }
 
@@ -926,7 +1222,7 @@ func (q *Queries) UpdatePartnerAccessRate(ctx context.Context, arg UpdatePartner
 
 const updateSourceGroup = `-- name: UpdateSourceGroup :one
 UPDATE source_groups SET name = $2, comment = $3, updated_at = now()
-WHERE id = $1 RETURNING id, partner_id, name, comment, created_at, updated_at
+WHERE id = $1 RETURNING id, partner_id, name, comment, legacy_kazik_group_id, created_at, updated_at
 `
 
 type UpdateSourceGroupParams struct {
@@ -943,6 +1239,7 @@ func (q *Queries) UpdateSourceGroup(ctx context.Context, arg UpdateSourceGroupPa
 		&i.PartnerID,
 		&i.Name,
 		&i.Comment,
+		&i.LegacyKazikGroupID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -958,7 +1255,7 @@ SET name = $2,
     is_active = $6,
     updated_at = now()
 WHERE id = $1
-RETURNING id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, created_at, updated_at
+RETURNING id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id, created_at, updated_at
 `
 
 type UpdateTrackingLinkParams struct {
@@ -989,22 +1286,76 @@ func (q *Queries) UpdateTrackingLink(ctx context.Context, arg UpdateTrackingLink
 		&i.GroupID,
 		&i.IsDefault,
 		&i.IsActive,
+		&i.Type,
+		&i.RegistrationBonus,
+		&i.Domain,
+		&i.RedirectID,
+		&i.LegacyKazikSourceID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const updateAllAccessRatesByPartner = `-- name: UpdateAllAccessRatesByPartner :exec
-UPDATE partner_offer_accesses SET rate_bps = $2, updated_at = now() WHERE partner_id = $1
+const updateTrackingLinkFull = `-- name: UpdateTrackingLinkFull :one
+UPDATE tracking_links
+SET name = COALESCE($1, name),
+    code = COALESCE($2, code),
+    comment = COALESCE($3, comment),
+    group_id = COALESCE($4, group_id),
+    is_active = COALESCE($5, is_active),
+    type = COALESCE($6, type),
+    registration_bonus = COALESCE($7, registration_bonus),
+    domain = COALESCE($8, domain),
+    redirect_id = COALESCE($9, redirect_id),
+    updated_at = now()
+WHERE id = $10
+RETURNING id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id, created_at, updated_at
 `
 
-type UpdateAllAccessRatesByPartnerParams struct {
-	PartnerID string `json:"partner_id"`
-	RateBps   int32  `json:"rate_bps"`
+type UpdateTrackingLinkFullParams struct {
+	Name              pgtype.Text `json:"name"`
+	Code              pgtype.Text `json:"code"`
+	Comment           pgtype.Text `json:"comment"`
+	GroupID           pgtype.UUID `json:"group_id"`
+	IsActive          pgtype.Bool `json:"is_active"`
+	Type              pgtype.Text `json:"type"`
+	RegistrationBonus pgtype.Int4 `json:"registration_bonus"`
+	Domain            pgtype.Text `json:"domain"`
+	RedirectID        pgtype.UUID `json:"redirect_id"`
+	ID                string      `json:"id"`
 }
 
-func (q *Queries) UpdateAllAccessRatesByPartner(ctx context.Context, arg UpdateAllAccessRatesByPartnerParams) error {
-	_, err := q.db.Exec(ctx, updateAllAccessRatesByPartner, arg.PartnerID, arg.RateBps)
-	return err
+func (q *Queries) UpdateTrackingLinkFull(ctx context.Context, arg UpdateTrackingLinkFullParams) (TrackingLink, error) {
+	row := q.db.QueryRow(ctx, updateTrackingLinkFull,
+		arg.Name,
+		arg.Code,
+		arg.Comment,
+		arg.GroupID,
+		arg.IsActive,
+		arg.Type,
+		arg.RegistrationBonus,
+		arg.Domain,
+		arg.RedirectID,
+		arg.ID,
+	)
+	var i TrackingLink
+	err := row.Scan(
+		&i.ID,
+		&i.PartnerOfferAccessID,
+		&i.Code,
+		&i.Name,
+		&i.Comment,
+		&i.GroupID,
+		&i.IsDefault,
+		&i.IsActive,
+		&i.Type,
+		&i.RegistrationBonus,
+		&i.Domain,
+		&i.RedirectID,
+		&i.LegacyKazikSourceID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

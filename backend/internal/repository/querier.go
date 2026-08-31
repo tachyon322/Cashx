@@ -34,8 +34,10 @@ type Querier interface {
 	CountOffers(ctx context.Context, dollar_1 interface{}) (int64, error)
 	CountPartnerProfilesAdmin(ctx context.Context, arg CountPartnerProfilesAdminParams) (int64, error)
 	CountProjects(ctx context.Context) (int64, error)
+	CountRedirectPoolURLs(ctx context.Context, redirectID string) (int64, error)
 	CountReferralsByReferrer(ctx context.Context, referrerPartnerID string) (int64, error)
 	CountSourcesInGroup(ctx context.Context, groupID pgtype.UUID) (int64, error)
+	CountTrackingLinksByPartner(ctx context.Context, partnerID string) (int64, error)
 	CountUnreadUserNotifications(ctx context.Context, userID string) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CountWithdrawalsAdmin(ctx context.Context, arg CountWithdrawalsAdminParams) (int64, error)
@@ -44,20 +46,27 @@ type Querier interface {
 	CreateOffer(ctx context.Context, arg CreateOfferParams) (CreateOfferRow, error)
 	CreateOfferTerms(ctx context.Context, arg CreateOfferTermsParams) (OfferTermsVersion, error)
 	CreatePartnerAccess(ctx context.Context, arg CreatePartnerAccessParams) (PartnerOfferAccess, error)
+	CreatePartnerDomain(ctx context.Context, arg CreatePartnerDomainParams) (PartnerDomain, error)
 	CreatePartnerProfile(ctx context.Context, arg CreatePartnerProfileParams) (PartnerProfile, error)
 	CreatePartnerReferral(ctx context.Context, arg CreatePartnerReferralParams) (PartnerReferral, error)
 	CreatePartnerReferralClick(ctx context.Context, arg CreatePartnerReferralClickParams) error
 	CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error)
+	CreateRedirectPool(ctx context.Context, arg CreateRedirectPoolParams) (RedirectPool, error)
+	CreateRedirectPoolURL(ctx context.Context, arg CreateRedirectPoolURLParams) (RedirectPoolUrl, error)
 	CreateSourceGroup(ctx context.Context, arg CreateSourceGroupParams) (SourceGroup, error)
 	CreateStaffRoleAssignment(ctx context.Context, arg CreateStaffRoleAssignmentParams) error
 	CreateTrackingClick(ctx context.Context, arg CreateTrackingClickParams) (TrackingClick, error)
 	CreateTrackingLink(ctx context.Context, arg CreateTrackingLinkParams) (TrackingLink, error)
-	CreateWallet(ctx context.Context, partnerID string) (Wallet, error)
+	CreateTrackingLinkFull(ctx context.Context, arg CreateTrackingLinkFullParams) (TrackingLink, error)
+	CreateWallet(ctx context.Context, partnerID string) (CreateWalletRow, error)
 	CreditWallet(ctx context.Context, arg CreditWalletParams) (CreditWalletRow, error)
 	DeactivateIntegrationKey(ctx context.Context, keyID string) error
 	DecideWithdrawal(ctx context.Context, arg DecideWithdrawalParams) (WithdrawalRequest, error)
 	DeleteDailyLinkStatsFrom(ctx context.Context, day pgtype.Date) error
 	DeleteDailyStatsFrom(ctx context.Context, day pgtype.Date) error
+	DeletePartnerDomain(ctx context.Context, id string) error
+	DeleteRedirectPool(ctx context.Context, id string) error
+	DeleteRedirectPoolURL(ctx context.Context, arg DeleteRedirectPoolURLParams) error
 	DeleteSourceGroup(ctx context.Context, id string) error
 	DeleteTrackingLink(ctx context.Context, id string) error
 	EventLock(ctx context.Context, hashtextextended string) error
@@ -78,6 +87,9 @@ type Querier interface {
 	GetOfferByID(ctx context.Context, id string) (GetOfferByIDRow, error)
 	GetOfferWithProject(ctx context.Context, id string) (GetOfferWithProjectRow, error)
 	GetPartnerAccess(ctx context.Context, arg GetPartnerAccessParams) (PartnerOfferAccess, error)
+	GetPartnerDomainByID(ctx context.Context, id string) (PartnerDomain, error)
+	GetPartnerDomainByLegacyID(ctx context.Context, legacyKazikDomainID pgtype.Text) (PartnerDomain, error)
+	GetPartnerDomainByURL(ctx context.Context, url string) (PartnerDomain, error)
 	GetPartnerProfileByID(ctx context.Context, id string) (PartnerProfile, error)
 	GetPartnerProfileByReferralCode(ctx context.Context, referralCode string) (PartnerProfile, error)
 	GetPartnerProfileByUserID(ctx context.Context, userID string) (PartnerProfile, error)
@@ -87,16 +99,21 @@ type Querier interface {
 	GetProjectByID(ctx context.Context, id string) (GetProjectByIDRow, error)
 	GetProjectBySlug(ctx context.Context, slug string) (GetProjectBySlugRow, error)
 	GetProjectSettings(ctx context.Context, projectID string) (ProjectSetting, error)
+	GetRedirectPoolByID(ctx context.Context, id string) (RedirectPool, error)
+	GetRedirectPoolByLegacyID(ctx context.Context, legacyKazikRedirectID pgtype.Text) (RedirectPool, error)
+	GetRedirectPoolURL(ctx context.Context, arg GetRedirectPoolURLParams) (RedirectPoolUrl, error)
+	GetRegistrationBonusByCode(ctx context.Context, code string) (pgtype.Int4, error)
 	GetRewardByEarning(ctx context.Context, commissionEarningID string) (ReferralReward, error)
 	GetSourceGroupByID(ctx context.Context, id string) (SourceGroup, error)
 	GetStaffRolesByUserID(ctx context.Context, userID string) ([]GetStaffRolesByUserIDRow, error)
 	GetTrackingLinkByCode(ctx context.Context, code string) (GetTrackingLinkByCodeRow, error)
+	GetTrackingLinkByCodeExtended(ctx context.Context, code string) (TrackingLink, error)
 	GetTrackingLinkByID(ctx context.Context, id string) (TrackingLink, error)
 	GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error)
 	GetUserByPartnerID(ctx context.Context, id string) (GetUserByPartnerIDRow, error)
 	GetUserIDByPartnerID(ctx context.Context, id string) (string, error)
-	GetWalletByID(ctx context.Context, id string) (Wallet, error)
-	GetWalletByPartnerID(ctx context.Context, partnerID string) (Wallet, error)
+	GetWalletByID(ctx context.Context, id string) (GetWalletByIDRow, error)
+	GetWalletByPartnerID(ctx context.Context, partnerID string) (GetWalletByPartnerIDRow, error)
 	GetWithdrawalRequest(ctx context.Context, id string) (WithdrawalRequest, error)
 	HistoryAttributionsByLink(ctx context.Context, arg HistoryAttributionsByLinkParams) ([]HistoryAttributionsByLinkRow, error)
 	// Cabinet offer history pieces.
@@ -117,6 +134,7 @@ type Querier interface {
 	InsertUserNotification(ctx context.Context, arg InsertUserNotificationParams) error
 	InsertWithdrawalRequest(ctx context.Context, arg InsertWithdrawalRequestParams) (WithdrawalRequest, error)
 	ListAccessRatesAll(ctx context.Context) ([]ListAccessRatesAllRow, error)
+	ListActivePartnerDomains(ctx context.Context) ([]PartnerDomain, error)
 	ListAllActiveAccesses(ctx context.Context) ([]ListAllActiveAccessesRow, error)
 	ListAnnouncementAudiencePartnerIDs(ctx context.Context, announcementID string) ([]pgtype.UUID, error)
 	ListAnnouncements(ctx context.Context) ([]Announcement, error)
@@ -130,11 +148,15 @@ type Querier interface {
 	ListOffersByProject(ctx context.Context, projectID string) ([]ListOffersByProjectRow, error)
 	ListPartnerAccesses(ctx context.Context, partnerID string) ([]PartnerOfferAccess, error)
 	ListPartnerAccessesWithOffer(ctx context.Context, partnerID string) ([]ListPartnerAccessesWithOfferRow, error)
+	ListPartnerDomains(ctx context.Context) ([]PartnerDomain, error)
 	ListPartnerProfilesAdmin(ctx context.Context, arg ListPartnerProfilesAdminParams) ([]ListPartnerProfilesAdminRow, error)
 	ListProjects(ctx context.Context, arg ListProjectsParams) ([]ListProjectsRow, error)
+	ListRedirectPoolURLs(ctx context.Context, redirectID string) ([]RedirectPoolUrl, error)
+	ListRedirectPools(ctx context.Context) ([]RedirectPool, error)
 	ListReferralsByReferrer(ctx context.Context, referrerPartnerID string) ([]ListReferralsByReferrerRow, error)
 	ListSourceGroupsByPartner(ctx context.Context, partnerID string) ([]SourceGroup, error)
 	ListTrackingLinksByAccessID(ctx context.Context, partnerOfferAccessID string) ([]ListTrackingLinksByAccessIDRow, error)
+	ListTrackingLinksByPartner(ctx context.Context, arg ListTrackingLinksByPartnerParams) ([]TrackingLink, error)
 	ListUserNotifications(ctx context.Context, arg ListUserNotificationsParams) ([]UserNotification, error)
 	ListVisibleAnnouncements(ctx context.Context) ([]Announcement, error)
 	ListWithdrawalsAdmin(ctx context.Context, arg ListWithdrawalsAdminParams) ([]ListWithdrawalsAdminRow, error)
@@ -149,8 +171,10 @@ type Querier interface {
 	ReleaseReserve(ctx context.Context, arg ReleaseReserveParams) (ReleaseReserveRow, error)
 	ReplaceAnnouncementAudiences(ctx context.Context, announcementID string) error
 	ReserveWithdrawal(ctx context.Context, arg ReserveWithdrawalParams) (ReserveWithdrawalRow, error)
+	ResolvePromoCode(ctx context.Context, code string) (TrackingLink, error)
 	ReverseEarning(ctx context.Context, id string) (CommissionEarning, error)
 	ReverseReward(ctx context.Context, id string) (ReferralReward, error)
+	SearchTrackingLinks(ctx context.Context, arg SearchTrackingLinksParams) ([]TrackingLink, error)
 	SetDefaultTrackingLink(ctx context.Context, id string) error
 	SetPartnerRevShare(ctx context.Context, arg SetPartnerRevShareParams) error
 	SetPlatformSetting(ctx context.Context, arg SetPlatformSettingParams) (PlatformSetting, error)
@@ -164,16 +188,20 @@ type Querier interface {
 	SumRewardsByInvited(ctx context.Context, invitedPartnerID string) (int64, error)
 	SumRewardsByReferrer(ctx context.Context, referrerPartnerID string) (int64, error)
 	TouchIntegrationKey(ctx context.Context, keyID string) error
+	UpdateAllAccessRatesByPartner(ctx context.Context, arg UpdateAllAccessRatesByPartnerParams) error
 	UpdateAnnouncement(ctx context.Context, arg UpdateAnnouncementParams) (Announcement, error)
 	UpdateConversionNote(ctx context.Context, arg UpdateConversionNoteParams) error
-	UpdateAllAccessRatesByPartner(ctx context.Context, arg UpdateAllAccessRatesByPartnerParams) error
 	UpdateOffer(ctx context.Context, arg UpdateOfferParams) (UpdateOfferRow, error)
 	UpdatePartnerAccessRate(ctx context.Context, arg UpdatePartnerAccessRateParams) (PartnerOfferAccess, error)
+	UpdatePartnerDomain(ctx context.Context, arg UpdatePartnerDomainParams) (PartnerDomain, error)
 	UpdatePartnerProfile(ctx context.Context, arg UpdatePartnerProfileParams) (PartnerProfile, error)
 	UpdatePayoutRules(ctx context.Context, arg UpdatePayoutRulesParams) (PayoutRule, error)
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (UpdateProjectRow, error)
+	UpdateRedirectPool(ctx context.Context, arg UpdateRedirectPoolParams) (RedirectPool, error)
+	UpdateRedirectPoolURL(ctx context.Context, arg UpdateRedirectPoolURLParams) (RedirectPoolUrl, error)
 	UpdateSourceGroup(ctx context.Context, arg UpdateSourceGroupParams) (SourceGroup, error)
 	UpdateTrackingLink(ctx context.Context, arg UpdateTrackingLinkParams) (TrackingLink, error)
+	UpdateTrackingLinkFull(ctx context.Context, arg UpdateTrackingLinkFullParams) (TrackingLink, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	// Per-source (tracking link) daily stats.

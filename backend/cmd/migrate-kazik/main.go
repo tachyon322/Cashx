@@ -24,6 +24,9 @@ const (
 type Report struct {
 	Partners            CountReport `json:"partners"`
 	Groups              CountReport `json:"groups"`
+	Domains             CountReport `json:"domains"`
+	Redirects           CountReport `json:"redirects"`
+	RedirectURLs        CountReport `json:"redirect_urls"`
 	Sources             CountReport `json:"sources"`
 	SourcesSkippedPromo int         `json:"sources_skipped_promo"`
 	Clicks              CountReport `json:"clicks"`
@@ -89,6 +92,8 @@ func main() {
 	partnerUserMap := make(map[string]string) // kazik partner id -> cashx user id
 	sourceMap := make(map[string]string)      // kazik source id -> cashx tracking_links id
 	groupMap := make(map[string]string)       // kazik group id -> cashx source_groups id
+	domainMap := make(map[string]string)      // kazik domain id -> cashx partner_domains id
+	redirectMap := make(map[string]string)    // kazik redirect id -> cashx redirect_pools id
 	accessMap := make(map[string]string)      // cashx partner id -> partner_offer_access id
 
 	// Step 1: partners
@@ -96,15 +101,23 @@ func main() {
 		report.Errors = append(report.Errors, fmt.Sprintf("partners: %v", err))
 		fmt.Printf("partners error: %v\n", err)
 	}
-	// Step 2: groups
+	// Step 2: groups (lazy, but count)
 	if err := migrateGroups(ctx, kazikPool, cashxPool, partnerMap, groupMap, &report); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("groups: %v", err))
+	}
+	// Step 2b: domains
+	if err := migrateDomains(ctx, kazikPool, cashxPool, domainMap, &report); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("domains: %v", err))
+	}
+	// Step 2c: redirects
+	if err := migrateRedirects(ctx, kazikPool, cashxPool, redirectMap, &report); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("redirects: %v", err))
 	}
 	// Step 3: sources (requires accessMap pre-filled for partners)
 	if err := ensureAccesses(ctx, cashxPool, partnerMap, offerID, accessMap, &report); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("accesses: %v", err))
 	}
-	if err := migrateSources(ctx, kazikPool, cashxPool, partnerMap, groupMap, accessMap, sourceMap, &report); err != nil {
+	if err := migrateSources(ctx, kazikPool, cashxPool, partnerMap, groupMap, domainMap, redirectMap, accessMap, sourceMap, &report); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("sources: %v", err))
 	}
 	// Step 4: clicks
@@ -408,6 +421,151 @@ func migrateGroups(ctx context.Context, kazik, cashx *pgxpool.Pool, partnerMap, 
 	return nil
 }
 
+func migrateDomains(ctx context.Context, kazik, cashx *pgxpool.Pool, domainMap map[string]string, report *Report) error {
+	rows, err := kazik.Query(ctx, `SELECT id, url, is_active, comment, created_at, updated_at FROM affiliate_domains ORDER BY created_at`)
+	if err != nil {
+		// table may not exist in older kazik dumps
+		if strings.Contains(err.Error(), "does not exist") {
+			report.Warnings = append(report.Warnings, "affiliate_domains table not found, skipping")
+			return nil
+		}
+		return err
+	}
+	defer rows.Close()
+	var ids []string
+	var urls []string
+	var isActives []bool
+	var comments []*string
+	for rows.Next() {
+		var id, url string
+		var isActive sqlBool
+		var comment *string
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&id, &url, &isActive, &comment, &createdAt, &updatedAt); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+		urls = append(urls, url)
+		isActives = append(isActives, bool(isActive))
+		comments = append(comments, comment)
+	}
+	report.Domains.Total = len(ids)
+	for i, id := range ids {
+		// idempotency via legacy_kazik_domain_id
+		var existing string
+		err := cashx.QueryRow(ctx, `SELECT id FROM partner_domains WHERE legacy_kazik_domain_id=$1`, id).Scan(&existing)
+		if err == nil {
+			domainMap[id] = existing
+			report.Domains.Skipped++
+			continue
+		}
+		// also check by url unique
+		var byURL string
+		err = cashx.QueryRow(ctx, `SELECT id FROM partner_domains WHERE url=$1`, urls[i]).Scan(&byURL)
+		if err == nil {
+			// bind legacy to existing
+			_, _ = cashx.Exec(ctx, `UPDATE partner_domains SET legacy_kazik_domain_id=$1 WHERE id=$2`, id, byURL)
+			domainMap[id] = byURL
+			report.Domains.Skipped++
+			report.ClashResolutions = append(report.ClashResolutions, fmt.Sprintf("domain %s url %s clash -> %s", id, urls[i], byURL))
+			continue
+		}
+		var newID string
+		err = cashx.QueryRow(ctx, `INSERT INTO partner_domains (id, url, is_active, comment, legacy_kazik_domain_id) VALUES (gen_random_uuid(), $1, $2, $3, $4) RETURNING id`, urls[i], isActives[i], comments[i], id).Scan(&newID)
+		if err != nil {
+			report.Domains.Failed++
+			report.Errors = append(report.Errors, fmt.Sprintf("domain %s: %v", id, err))
+			continue
+		}
+		domainMap[id] = newID
+		report.Domains.Inserted++
+	}
+	return nil
+}
+
+func migrateRedirects(ctx context.Context, kazik, cashx *pgxpool.Pool, redirectMap map[string]string, report *Report) error {
+	rows, err := kazik.Query(ctx, `SELECT id, name, comment, created_at, updated_at FROM affiliate_redirects ORDER BY created_at`)
+	if err != nil {
+		if strings.Contains(err.Error(), "does not exist") {
+			report.Warnings = append(report.Warnings, "affiliate_redirects table not found, skipping")
+			return nil
+		}
+		return err
+	}
+	defer rows.Close()
+	type r struct {
+		ID        string
+		Name      string
+		Comment   *string
+		CreatedAt time.Time
+		UpdatedAt time.Time
+	}
+	var redirects []r
+	for rows.Next() {
+		var rr r
+		if err := rows.Scan(&rr.ID, &rr.Name, &rr.Comment, &rr.CreatedAt, &rr.UpdatedAt); err != nil {
+			return err
+		}
+		redirects = append(redirects, rr)
+	}
+	report.Redirects.Total = len(redirects)
+	for _, rd := range redirects {
+		var existing string
+		err := cashx.QueryRow(ctx, `SELECT id FROM redirect_pools WHERE legacy_kazik_redirect_id=$1`, rd.ID).Scan(&existing)
+		if err == nil {
+			redirectMap[rd.ID] = existing
+			report.Redirects.Skipped++
+			// still need to migrate urls for this redirect (even if pool exists, need to ensure urls)
+		} else {
+			// check by name? Not unique, so just insert
+			var newID string
+			err = cashx.QueryRow(ctx, `INSERT INTO redirect_pools (id, name, comment, legacy_kazik_redirect_id, created_at, updated_at) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5) RETURNING id`, rd.Name, rd.Comment, rd.ID, rd.CreatedAt, rd.UpdatedAt).Scan(&newID)
+			if err != nil {
+				report.Redirects.Failed++
+				report.Errors = append(report.Errors, fmt.Sprintf("redirect %s: %v", rd.ID, err))
+				continue
+			}
+			redirectMap[rd.ID] = newID
+			report.Redirects.Inserted++
+		}
+		// Migrate urls for this redirect
+		poolID := redirectMap[rd.ID]
+		urlRows, err := kazik.Query(ctx, `SELECT id, url, weight, is_active, sort_order, created_at FROM affiliate_redirect_urls WHERE redirect_id=$1 ORDER BY sort_order`, rd.ID)
+		if err != nil {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("redirect %s urls query: %v", rd.ID, err))
+			continue
+		}
+		for urlRows.Next() {
+			var uid, urlStr string
+			var weight int
+			var isActive sqlBool
+			var sortOrder int
+			var createdAt time.Time
+			if err := urlRows.Scan(&uid, &urlStr, &weight, &isActive, &sortOrder, &createdAt); err != nil {
+				continue
+			}
+			// check if already exists by redirect_id+url+sort_order?
+			var existsID string
+			err = cashx.QueryRow(ctx, `SELECT id FROM redirect_pool_urls WHERE redirect_id=$1 AND url=$2 AND sort_order=$3`, poolID, urlStr, sortOrder).Scan(&existsID)
+			if err == nil {
+				report.RedirectURLs.Skipped++
+				continue
+			}
+			_, err = cashx.Exec(ctx, `INSERT INTO redirect_pool_urls (id, redirect_id, url, weight, is_active, sort_order, created_at) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)`, poolID, urlStr, weight, bool(isActive), sortOrder, createdAt)
+			if err != nil {
+				report.RedirectURLs.Failed++
+				report.Errors = append(report.Errors, fmt.Sprintf("redirect url %s: %v", uid, err))
+			} else {
+				report.RedirectURLs.Inserted++
+			}
+		}
+		urlRows.Close()
+	}
+	// Count total redirect_urls for report
+	report.RedirectURLs.Total = report.RedirectURLs.Inserted + report.RedirectURLs.Skipped + report.RedirectURLs.Failed
+	return nil
+}
+
 func ensureAccesses(ctx context.Context, cashx *pgxpool.Pool, partnerMap map[string]string, offerID string, accessMap map[string]string, report *Report) error {
 	for kazikPID, cashxPID := range partnerMap {
 		var accessID string
@@ -438,8 +596,8 @@ func ensureAccesses(ctx context.Context, cashx *pgxpool.Pool, partnerMap map[str
 	return nil
 }
 
-func migrateSources(ctx context.Context, kazik, cashx *pgxpool.Pool, partnerMap, groupMap, accessMap, sourceMap map[string]string, report *Report) error {
-	rows, err := kazik.Query(ctx, `SELECT id, code, name, type, registration_bonus, group_id, partner_id, redirect_id, domain, comment, is_active, created_at, updated_at FROM affiliate_sources WHERE type='link' ORDER BY created_at`)
+func migrateSources(ctx context.Context, kazik, cashx *pgxpool.Pool, partnerMap, groupMap, domainMap, redirectMap, accessMap, sourceMap map[string]string, report *Report) error {
+	rows, err := kazik.Query(ctx, `SELECT id, code, name, type, registration_bonus, group_id, partner_id, redirect_id, domain, comment, is_active, created_at, updated_at FROM affiliate_sources ORDER BY created_at`)
 	if err != nil {
 		return err
 	}
@@ -469,13 +627,20 @@ func migrateSources(ctx context.Context, kazik, cashx *pgxpool.Pool, partnerMap,
 		ss.IsActive = bool(isActive)
 		sources = append(sources, ss)
 	}
-	// Also count promo skipped
-	var promoCount int
-	_ = kazik.QueryRow(ctx, `SELECT count(*) FROM affiliate_sources WHERE type='promo'`).Scan(&promoCount)
-	report.PromoSkipped = promoCount
-	report.SourcesSkippedPromo = promoCount
-
+	// Promo now migrated (was skipped before Phase1), keep counts for info but don't mark as skipped
 	report.Sources.Total = len(sources)
+	report.PromoSkipped = 0
+	report.SourcesSkippedPromo = 0
+	// Count promo for verification (not skipped)
+	var promoTotal int
+	for _, s := range sources {
+		if s.Type == "promo" {
+			promoTotal++
+		}
+	}
+	if promoTotal > 0 {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("promo sources to migrate: %d", promoTotal))
+	}
 	for i, src := range sources {
 		cashxPartnerID, ok := partnerMap[src.PartnerID]
 		if !ok {
@@ -513,13 +678,14 @@ func migrateSources(ctx context.Context, kazik, cashx *pgxpool.Pool, partnerMap,
 					var existingGID string
 					err = cashx.QueryRow(ctx, `SELECT id FROM source_groups WHERE partner_id=$1 AND name=$2`, cashxPartnerID, name).Scan(&existingGID)
 					if err == pgx.ErrNoRows {
-						// create
+						// create with legacy id
 						var newID string
 						suffix := ""
 						origName := name
+						legacyID := *src.GroupID
 						for attempt := range 5 {
 							tryName := origName + suffix
-							err = cashx.QueryRow(ctx, `INSERT INTO source_groups (id, partner_id, name, comment) VALUES (gen_random_uuid(), $1, $2, $3) RETURNING id`, cashxPartnerID, tryName, comment).Scan(&newID)
+							err = cashx.QueryRow(ctx, `INSERT INTO source_groups (id, partner_id, name, comment, legacy_kazik_group_id) VALUES (gen_random_uuid(), $1, $2, $3, $4) RETURNING id`, cashxPartnerID, tryName, comment, legacyID).Scan(&newID)
 							if err == nil {
 								existingGID = newID
 								break
@@ -578,10 +744,26 @@ func migrateSources(ctx context.Context, kazik, cashx *pgxpool.Pool, partnerMap,
 			isDefault = cnt == 0
 		}
 
+		// Resolve domain/redirect for new schema
+		var domainVal *string
+		if src.Domain != nil && strings.TrimSpace(*src.Domain) != "" && src.Type != "promo" {
+			// src.Domain is already a normalized origin like https://cashxpay.cc
+			// Validate it exists in partner_domains? If not, keep as is (will be inserted as text)
+			dv := strings.TrimSpace(*src.Domain)
+			domainVal = &dv
+		}
+		var redirectUUID *string
+		if src.RedirectID != nil && strings.TrimSpace(*src.RedirectID) != "" {
+			if rid, ok := redirectMap[strings.TrimSpace(*src.RedirectID)]; ok {
+				redirectUUID = &rid
+			} else {
+				// Try to keep original if not found? Store null to avoid FK violation
+				redirectUUID = nil
+			}
+		}
 		var linkID string
-		// Need to handle that tracking_links previously had UNIQUE(partner_offer_access_id), now removed in 00014. So we can insert.
-		err = cashx.QueryRow(ctx, `INSERT INTO tracking_links (id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, legacy_kazik_source_id, created_at, updated_at) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-			accessID, code, src.Name, comment, groupUUID, isDefault, src.IsActive, src.ID, src.CreatedAt, src.UpdatedAt).Scan(&linkID)
+		err = cashx.QueryRow(ctx, `INSERT INTO tracking_links (id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id, created_at, updated_at) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+			accessID, code, src.Name, comment, groupUUID, isDefault, src.IsActive, src.Type, src.RegistrationBonus, domainVal, redirectUUID, src.ID, src.CreatedAt, src.UpdatedAt).Scan(&linkID)
 		if err != nil {
 			report.Sources.Failed++
 			report.Errors = append(report.Errors, fmt.Sprintf("source %s insert: %v", src.ID, err))

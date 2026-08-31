@@ -36,9 +36,12 @@ func NewRedirectHandler(d RedirectDeps) http.Handler {
 	})
 	r.Group(func(r chi.Router) {
 		r.Use(rl)
-		r.Get("/c/{code}", func(w http.ResponseWriter, req *http.Request) {
-			code := strings.ToUpper(req.PathValue("code"))
-			if code == "" || len(code) > 12 {
+		handle := func(w http.ResponseWriter, req *http.Request) {
+			code := strings.ToUpper(chi.URLParam(req, "code"))
+			if code == "" {
+				code = strings.ToUpper(req.PathValue("code"))
+			}
+			if code == "" || len(code) > 32 {
 				http.Redirect(w, req, d.Cfg.FrontendOrigin, http.StatusFound)
 				return
 			}
@@ -64,7 +67,9 @@ func NewRedirectHandler(d RedirectDeps) http.Handler {
 				sep = "&"
 			}
 			http.Redirect(w, req, result.Destination+sep+"click_token="+token, http.StatusFound)
-		})
+		}
+		r.Get("/c/{code}", handle)
+		r.Get("/r/{code}", handle)
 	})
 	return r
 }

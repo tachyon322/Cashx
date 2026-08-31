@@ -1,11 +1,12 @@
 -- Pure DDL mirror of migrations/00005_finance.sql for sqlc (no seeds).
 CREATE TABLE wallets (
-    id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    partner_id        uuid NOT NULL UNIQUE REFERENCES partner_profiles(id) ON DELETE CASCADE,
-    available_kopecks bigint NOT NULL DEFAULT 0,
-    reserved_kopecks  bigint NOT NULL DEFAULT 0,
-    created_at        timestamptz NOT NULL DEFAULT now(),
-    updated_at        timestamptz NOT NULL DEFAULT now()
+    id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    partner_id              uuid NOT NULL UNIQUE REFERENCES partner_profiles(id) ON DELETE CASCADE,
+    available_kopecks       bigint NOT NULL DEFAULT 0,
+    reserved_kopecks        bigint NOT NULL DEFAULT 0,
+    legacy_kazik_balance    integer,
+    created_at              timestamptz NOT NULL DEFAULT now(),
+    updated_at              timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE wallet_ledger_entries (
@@ -52,24 +53,26 @@ CREATE TABLE referral_rewards (
 CREATE INDEX referral_rewards_referrer_created_idx ON referral_rewards(referrer_partner_id, created_at);
 
 CREATE TABLE withdrawal_requests (
-    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    partner_id     uuid NOT NULL REFERENCES partner_profiles(id) ON DELETE RESTRICT,
-    amount_kopecks bigint NOT NULL,
-    method         text NOT NULL CHECK (method IN ('usdt', 'sbp')),
-    requisites     text NOT NULL,
-    bank           text,
-    fee_kopecks    bigint NOT NULL DEFAULT 0,
-    usdt_amount    numeric(18,8),
-    rate           numeric(12,4),
-    status         text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'paid', 'rejected', 'cancelled')),
-    comment        text,
-    decided_at     timestamptz,
-    paid_at        timestamptz,
-    created_at     timestamptz NOT NULL DEFAULT now(),
-    updated_at     timestamptz NOT NULL DEFAULT now()
+    id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    partner_id                  uuid NOT NULL REFERENCES partner_profiles(id) ON DELETE RESTRICT,
+    amount_kopecks              bigint NOT NULL,
+    method                      text NOT NULL CHECK (method IN ('usdt', 'sbp')),
+    requisites                  text NOT NULL,
+    bank                        text,
+    fee_kopecks                 bigint NOT NULL DEFAULT 0,
+    usdt_amount                 numeric(18,8),
+    rate                        numeric(12,4),
+    status                      text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'paid', 'rejected', 'cancelled')),
+    comment                     text,
+    decided_at                  timestamptz,
+    paid_at                     timestamptz,
+    legacy_kazik_withdrawal_id  text UNIQUE,
+    created_at                  timestamptz NOT NULL DEFAULT now(),
+    updated_at                  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX withdrawal_requests_partner_created_idx ON withdrawal_requests(partner_id, created_at);
 CREATE INDEX withdrawal_requests_status_idx ON withdrawal_requests(status);
+CREATE INDEX withdrawal_requests_legacy_kazik_withdrawal_id_idx ON withdrawal_requests(legacy_kazik_withdrawal_id) WHERE legacy_kazik_withdrawal_id IS NOT NULL;
 
 CREATE TABLE payout_requisites (
     id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),

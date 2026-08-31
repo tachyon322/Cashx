@@ -153,6 +153,235 @@ export function useReferrals() {
   })
 }
 
+/* ── Phase 3: reusable partnerka ── */
+
+export interface B2CReferralsParams {
+  from?: string
+  to?: string
+  search?: string
+  limit?: number
+  offset?: number
+}
+
+export interface B2CReferralItem {
+  user_id: string
+  name: string
+  email?: string | null
+  kind: string
+  created_at: string
+  source_id: string
+  source_name: string
+  deposits_count: number
+  deposits_sum: number
+  income: number
+  commission_percent: number
+}
+
+export interface B2CReferralsResponse {
+  total: number
+  sum: number
+  items: B2CReferralItem[]
+}
+
+export function useB2CReferrals(params: B2CReferralsParams = {}) {
+  return useQuery({
+    queryKey: ['b2c-referrals', params],
+    queryFn: () =>
+      guarded(async () => {
+        const qs = new URLSearchParams()
+        if (params.from) qs.set('from', params.from)
+        if (params.to) qs.set('to', params.to)
+        if (params.search) qs.set('search', params.search)
+        if (params.limit != null) qs.set('limit', String(params.limit))
+        if (params.offset != null) qs.set('offset', String(params.offset))
+        const url = `/api/v1/cabinet/b2c-referrals${qs.toString() ? `?${qs.toString()}` : ''}`
+        const res = await fetch(url, { credentials: 'include' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+        }
+        return (await res.json()) as B2CReferralsResponse
+      }),
+    retry: 1,
+  })
+}
+
+export interface CabinetConfigResponse {
+  domains: string[]
+  defaultDomain: string
+}
+
+export function useCabinetConfig() {
+  return useQuery({
+    queryKey: ['cabinet-config'],
+    queryFn: () =>
+      guarded(async () => {
+        const res = await fetch('/api/v1/cabinet/config', { credentials: 'include' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+        }
+        const raw = (await res.json()) as { domains?: string[]; defaultDomain?: string; default_domain?: string }
+        return {
+          domains: raw.domains ?? [],
+          defaultDomain: raw.defaultDomain ?? raw.default_domain ?? '',
+        } as CabinetConfigResponse
+      }),
+    retry: 1,
+  })
+}
+
+export function useRegistrationBonus(ref?: string | null) {
+  return useQuery({
+    queryKey: ['registration-bonus', ref ?? ''],
+    queryFn: () =>
+      guarded(async () => {
+        const url = ref ? `/api/v1/cabinet/registration-bonus?ref=${encodeURIComponent(ref)}` : '/api/v1/cabinet/registration-bonus'
+        const res = await fetch(url, { credentials: 'include' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+        }
+        return (await res.json()) as { bonus: number }
+      }),
+    enabled: true,
+    retry: 1,
+  })
+}
+
+export interface LeaderboardEntry {
+  partner_id: string
+  name: string
+  email: string
+  revshare_percent_bps: number
+  clicks: number
+  signups: number
+  promos: number
+  depositors: number
+  deposits_sum: number
+  income: number
+  cr?: number | null
+}
+
+export interface LeaderboardResponse {
+  period: string
+  metric: string
+  items: LeaderboardEntry[]
+}
+
+export function useLeaderboard(period: string = 'all', metric: string = 'income') {
+  return useQuery({
+    queryKey: ['leaderboard', period, metric],
+    queryFn: () =>
+      guarded(async () => {
+        const qs = new URLSearchParams({ period, metric })
+        const res = await fetch(`/api/v1/cabinet/leaderboard?${qs.toString()}`, { credentials: 'include' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+        }
+        return (await res.json()) as LeaderboardResponse
+      }),
+    retry: 1,
+  })
+}
+
+export interface CabinetTransaction {
+  id: string
+  type: string
+  amount_kopecks: number
+  created_at: string
+}
+
+export function useCabinetTransactions() {
+  return useQuery({
+    queryKey: ['cabinet-transactions'],
+    queryFn: () =>
+      guarded(async () => {
+        const res = await fetch('/api/v1/cabinet/transactions', { credentials: 'include' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+        }
+        return (await res.json()) as { items: CabinetTransaction[] }
+      }),
+    retry: 1,
+  })
+}
+
+export interface PartnerDomainDto {
+  id: string
+  url: string
+  is_active: boolean
+  comment?: string | null
+  created_at?: string
+}
+
+export function usePartnerDomains() {
+  return useQuery({
+    queryKey: ['admin', 'domains'],
+    queryFn: () =>
+      guarded(async () => {
+        const res = await fetch('/api/v1/admin/domains', { credentials: 'include' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+        }
+        return (await res.json()) as { items: PartnerDomainDto[] }
+      }),
+    retry: 1,
+  })
+}
+
+export interface RedirectPoolUrlDto {
+  id: string
+  url: string
+  weight: number
+  is_active: boolean
+}
+
+export interface RedirectPoolDto {
+  id: string
+  name: string
+  comment?: string | null
+  urls?: RedirectPoolUrlDto[]
+}
+
+export function useRedirectPools() {
+  return useQuery({
+    queryKey: ['admin', 'redirects'],
+    queryFn: () =>
+      guarded(async () => {
+        const res = await fetch('/api/v1/admin/redirects', { credentials: 'include' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+        }
+        return (await res.json()) as { items: RedirectPoolDto[] }
+      }),
+    retry: 1,
+  })
+}
+
+export function useCabinetAttrib() {
+  return useMutation({
+    mutationFn: async (input: { ref?: string; click_token?: string }) => {
+      const res = await fetch('/api/v1/cabinet/attrib', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+      }
+      return (await res.json()) as { attributed: boolean }
+    },
+    onError: handleAuthError,
+  })
+}
+
 export function useNotifications() {
   return useQuery({
     queryKey: ['notifications'],

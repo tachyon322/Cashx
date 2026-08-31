@@ -35,13 +35,28 @@ func sourceResponse(s offers.Source) gen.Source {
 	isActive := s.IsActive
 	totals := sourceTotalsResponse(s.Totals)
 	totals30d := sourceTotalsResponse(s.Totals30d)
-	return gen.Source{
+	srcType := gen.SourceType(s.Type)
+	if s.Type == "" {
+		srcType = gen.SourceTypeLink
+	}
+	resp := gen.Source{
 		Id: &id, Code: &code, Name: &name, Comment: s.Comment,
 		GroupId: s.GroupID, GroupName: s.GroupName,
 		IsDefault: &isDefault, IsActive: &isActive, Url: &url,
+		Type: &srcType,
 		Totals: &totals, Totals30d: &totals30d,
 		CreatedAt: parseRFC3339(s.CreatedAt),
 	}
+	if s.RegistrationBonus != nil {
+		resp.RegistrationBonus = s.RegistrationBonus
+	}
+	if s.Domain != nil {
+		resp.Domain = s.Domain
+	}
+	if s.RedirectID != nil {
+		resp.RedirectId = s.RedirectID
+	}
+	return resp
 }
 
 func sourceGroupResponse(g offers.Group) gen.SourceGroup {
@@ -80,7 +95,23 @@ func (s *Server) CabinetOfferSourceCreate(w http.ResponseWriter, r *http.Request
 	}
 	partnerID := partnerIDFrom(r)
 	isDefault := body.IsDefault != nil && *body.IsDefault
-	src, err := s.Offers.CreateSource(r.Context(), partnerID, offerId, body.Name, body.Code, body.Comment, body.GroupId, isDefault)
+	// Determine type
+	typ := "link"
+	if body.Type != nil && *body.Type == gen.SourceInputTypePromo {
+		typ = "promo"
+	}
+	var src offers.Source
+	var err error
+	if typ == "promo" {
+		src, err = s.Offers.CreatePromoSource(r.Context(), partnerID, offerId, body.Name, body.Code, body.RegistrationBonus, body.Comment, body.GroupId)
+	} else {
+		// link with optional domain/redirect
+		if body.Domain != nil || body.RedirectId != nil {
+			src, err = s.Offers.CreateLinkSource(r.Context(), partnerID, offerId, body.Name, body.Code, body.Comment, body.GroupId, body.Domain, body.RedirectId, isDefault)
+		} else {
+			src, err = s.Offers.CreateSource(r.Context(), partnerID, offerId, body.Name, body.Code, body.Comment, body.GroupId, isDefault)
+		}
+	}
 	if err != nil {
 		writeErr(s.Log, w, err)
 		return
@@ -98,6 +129,37 @@ func (s *Server) CabinetOfferSourceUpdate(w http.ResponseWriter, r *http.Request
 	partnerID := partnerIDFrom(r)
 	isActive := body.IsActive == nil || *body.IsActive
 	isDefault := body.IsDefault != nil && *body.IsDefault
+	// If promo-specific fields present, try extended update
+	if body.Type != nil || body.RegistrationBonus != nil || body.Domain != nil || body.RedirectId != nil {
+		// For now, handle code/name/comment/group/isActive/isDefault via existing UpdateSource
+		// and attempt to update extended fields via raw query if needed
+		src, err := s.Offers.UpdateSource(r.Context(), partnerID, offerId, sourceId, body.Name, body.Code, body.Comment, body.GroupId, isActive, isDefault)
+		if err != nil {
+			writeErr(s.Log, w, err)
+			return
+		}
+		// Best-effort: update extended fields directly if provided
+		if body.RegistrationBonus != nil {
+			_, _ = s.Pool.Exec(r.Context(), `UPDATE tracking_links SET registration_bonus=$1 WHERE id=$2`, *body.RegistrationBonus, sourceId)
+		}
+		if body.Domain != nil {
+			_, _ = s.Pool.Exec(r.Context(), `UPDATE tracking_links SET domain=$1 WHERE id=$2`, *body.Domain, sourceId)
+		}
+		if body.RedirectId != nil {
+			_, _ = s.Pool.Exec(r.Context(), `UPDATE tracking_links SET redirect_id=$1::uuid WHERE id=$2`, *body.RedirectId, sourceId)
+		}
+		// Re-fetch
+		if refreshed, err := s.Offers.ListSources(r.Context(), partnerID, offerId); err == nil {
+			for _, it := range refreshed {
+				if it.ID == sourceId {
+					src = it
+					break
+				}
+			}
+		}
+		respond(w, http.StatusOK, sourceResponse(src))
+		return
+	}
 	src, err := s.Offers.UpdateSource(r.Context(), partnerID, offerId, sourceId, body.Name, body.Code, body.Comment, body.GroupId, isActive, isDefault)
 	if err != nil {
 		writeErr(s.Log, w, err)

@@ -397,7 +397,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update partner (approve/block/rename) */
+        /** Update partner (approve/block/rename/revshare) */
         patch: operations["adminPartnerUpdate"];
         trace?: never;
     };
@@ -731,6 +731,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/staff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List staff members (superadmin only) */
+        get: operations["adminStaffList"];
+        put?: never;
+        /** Create staff member (superadmin only) */
+        post: operations["adminStaffCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/staff/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get staff member */
+        get: operations["adminStaffGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update staff member (superadmin only) */
+        patch: operations["adminStaffUpdate"];
+        trace?: never;
+    };
     "/integrations/events": {
         parameters: {
             query?: never;
@@ -895,6 +931,11 @@ export interface components {
             is_default?: boolean;
             is_active?: boolean;
             url?: string;
+            /** @enum {string|null} */
+            type?: "link" | "promo" | null;
+            registration_bonus?: number | null;
+            domain?: string | null;
+            redirect_id?: string | null;
             totals?: components["schemas"]["SourceTotals"];
             totals_30d?: components["schemas"]["SourceTotals"];
             /** Format: date-time */
@@ -906,6 +947,11 @@ export interface components {
             comment?: string | null;
             group_id?: string | null;
             is_default?: boolean;
+            /** @enum {string|null} */
+            type?: "link" | "promo" | null;
+            registration_bonus?: number | null;
+            domain?: string | null;
+            redirect_id?: string | null;
         };
         SourceUpdate: {
             name: string;
@@ -914,6 +960,11 @@ export interface components {
             group_id?: string | null;
             is_active?: boolean;
             is_default?: boolean;
+            /** @enum {string|null} */
+            type?: "link" | "promo" | null;
+            registration_bonus?: number | null;
+            domain?: string | null;
+            redirect_id?: string | null;
         };
         SourceGroup: {
             id?: string;
@@ -1004,6 +1055,7 @@ export interface components {
             is_blocked?: boolean;
             /** Format: int64 */
             balance_kopecks?: number;
+            /** @description RevShare per partner (1% = 100 bps) */
             revshare_percent_bps?: number;
             rates?: {
                 offer_id?: string;
@@ -1120,6 +1172,17 @@ export interface components {
             changes?: Record<string, never> | null;
             /** Format: date-time */
             created_at?: string;
+        };
+        StaffMember: {
+            id?: string;
+            email?: string;
+            name?: string;
+            is_active?: boolean;
+            roles?: string[];
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
         };
         EventInput: {
             event_id: string;
@@ -1907,6 +1970,8 @@ export interface operations {
                     password?: string;
                     is_approved?: boolean;
                     is_blocked?: boolean;
+                    /** @description RevShare for the partner (1% = 100 bps). Updates global revshare and syncs all accesses. */
+                    revshare_percent_bps?: number;
                 };
             };
         };
@@ -2096,7 +2161,8 @@ export interface operations {
                      * @enum {string}
                      */
                     status?: "active" | "available" | "pending" | "coming_soon";
-                    rate_bps: number;
+                    /** @description Deprecated — revshare is now per-partner, not per-offer. If omitted, defaults to 0. */
+                    rate_bps?: number;
                 };
             };
         };
@@ -2648,6 +2714,123 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    adminStaffList: {
+        parameters: {
+            query?: {
+                search?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        total?: number;
+                        items?: components["schemas"]["StaffMember"][];
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    adminStaffCreate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    email: string;
+                    password: string;
+                    roles: ("superadmin" | "project_manager" | "finance" | "content_manager" | "support")[];
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffMember"];
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    adminStaffGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffMember"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    adminStaffUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    email?: string;
+                    password?: string;
+                    is_active?: boolean;
+                    roles?: ("superadmin" | "project_manager" | "finance" | "content_manager" | "support")[];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffMember"];
+                };
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     integrationsEvent: {

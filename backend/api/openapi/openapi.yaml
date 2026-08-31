@@ -1828,6 +1828,19 @@ components:
           type: boolean
         url:
           type: string
+        type:
+          type: string
+          enum: [link, promo]
+          nullable: true
+        registration_bonus:
+          type: integer
+          nullable: true
+        domain:
+          type: string
+          nullable: true
+        redirect_id:
+          type: string
+          nullable: true
         totals:
           $ref: '#/components/schemas/SourceTotals'
         totals_30d:
@@ -1852,6 +1865,19 @@ components:
           nullable: true
         is_default:
           type: boolean
+        type:
+          type: string
+          enum: [link, promo]
+          nullable: true
+        registration_bonus:
+          type: integer
+          nullable: true
+        domain:
+          type: string
+          nullable: true
+        redirect_id:
+          type: string
+          nullable: true
     SourceUpdate:
       type: object
       required: [name]
@@ -1871,6 +1897,19 @@ components:
           type: boolean
         is_default:
           type: boolean
+        type:
+          type: string
+          enum: [link, promo]
+          nullable: true
+        registration_bonus:
+          type: integer
+          nullable: true
+        domain:
+          type: string
+          nullable: true
+        redirect_id:
+          type: string
+          nullable: true
     SourceGroup:
       type: object
       properties:

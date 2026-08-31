@@ -2,11 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
-
-	"github.com/go-chi/chi/v5"
 
 	"cashx/internal/api/gen"
 	"cashx/internal/admin"
@@ -886,9 +885,18 @@ func (s *Server) AdminWithdrawalMirror(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminStaffList handles GET /admin/staff.
-func (s *Server) AdminStaffList(w http.ResponseWriter, r *http.Request) {
-	search := r.URL.Query().Get("search")
+func (s *Server) AdminStaffList(w http.ResponseWriter, r *http.Request, params gen.AdminStaffListParams) {
+	search := ""
+	if params.Search != nil {
+		search = *params.Search
+	}
 	limit, offset := pagination(r)
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+	if params.Offset != nil {
+		offset = *params.Offset
+	}
 	items, total, err := s.Admin.ListStaff(r.Context(), search, limit, offset)
 	if err != nil {
 		writeErr(s.Log, w, err)
@@ -898,6 +906,38 @@ func (s *Server) AdminStaffList(w http.ResponseWriter, r *http.Request) {
 		Total int64        `json:"total"`
 		Items []admin.StaffMember `json:"items"`
 	}{Total: total, Items: items})
+}
+
+// adminStaffListLegacy is chi handler for direct route (keeps old pagination handling)
+func (s *Server) adminStaffListLegacy(w http.ResponseWriter, r *http.Request) {
+	s.AdminStaffList(w, r, gen.AdminStaffListParams{
+		Search: stringPtrOrNil(r.URL.Query().Get("search")),
+		Limit:  intPtrOrNil(r.URL.Query().Get("limit")),
+		Offset: intPtrOrNil(r.URL.Query().Get("offset")),
+	})
+}
+
+func stringPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func intPtrOrNil(s string) *int {
+	if s == "" {
+		return nil
+	}
+	if v, err := parseIntParam(s); err == nil {
+		return &v
+	}
+	return nil
+}
+
+func parseIntParam(s string) (int, error) {
+	var v int
+	_, err := fmt.Sscanf(s, "%d", &v)
+	return v, err
 }
 
 // AdminStaffCreate handles POST /admin/staff.
@@ -921,19 +961,8 @@ func (s *Server) AdminStaffCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminStaffGet handles GET /admin/staff/{id}.
-func (s *Server) AdminStaffGet(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		id = r.PathValue("id")
-	}
-	if id == "" {
-		id = r.URL.Query().Get("id")
-	}
-	if id == "" {
-		httpjson.Error(w, http.StatusBadRequest, "id_required")
-		return
-	}
-	member, err := s.Admin.GetStaff(r.Context(), id)
+func (s *Server) AdminStaffGet(w http.ResponseWriter, r *http.Request, id gen.Id) {
+	member, err := s.Admin.GetStaff(r.Context(), string(id))
 	if err != nil {
 		writeErr(s.Log, w, err)
 		return
@@ -942,11 +971,7 @@ func (s *Server) AdminStaffGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminStaffUpdate handles PATCH /admin/staff/{id}.
-func (s *Server) AdminStaffUpdate(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		id = r.PathValue("id")
-	}
+func (s *Server) AdminStaffUpdate(w http.ResponseWriter, r *http.Request, id gen.Id) {
 	var body struct {
 		Name     *string  `json:"name"`
 		Email    *string  `json:"email"`
@@ -958,7 +983,7 @@ func (s *Server) AdminStaffUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(s.Log, w, err)
 		return
 	}
-	member, err := s.Admin.UpdateStaff(r.Context(), actorID(r), id, body.Name, body.Email, body.Password, body.IsActive, body.Roles)
+	member, err := s.Admin.UpdateStaff(r.Context(), actorID(r), string(id), body.Name, body.Email, body.Password, body.IsActive, body.Roles)
 	if err != nil {
 		writeErr(s.Log, w, err)
 		return

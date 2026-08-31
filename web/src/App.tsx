@@ -3,6 +3,7 @@ import { createBrowserRouter, Navigate, Outlet, RouterProvider } from 'react-rou
 import type { ReactNode } from 'react'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { AppLayout, PartnerLayout } from './components/layout/AppLayout'
+import { AffiliateRefTracker } from './components/AffiliateRefTracker'
 import { ToastProvider } from './components/Toast'
 import { ClickBounce } from './pages/public/ClickBounce'
 import { ForgotPage } from './pages/public/ForgotPage'
@@ -15,6 +16,9 @@ import { OffersPage } from './pages/partner/OffersPage'
 import { PayoutsPage } from './pages/partner/PayoutsPage'
 import { ProfilePage } from './pages/partner/ProfilePage'
 import { ReferralsPage } from './pages/partner/ReferralsPage'
+import { B2CReferralsPage } from './pages/partner/B2CReferralsPage'
+import { LeaderboardPage } from './pages/partner/LeaderboardPage'
+import { SettingsPage } from './pages/partner/SettingsPage'
 import { AnnouncementsPage } from './pages/admin/AnnouncementsPage'
 import { AuditPage } from './pages/admin/AuditPage'
 import { BrandingPage } from './pages/admin/BrandingPage'
@@ -59,7 +63,12 @@ function SplashScreen() {
 function AppGate() {
   const { isPending } = useAuth()
   if (isPending) return <SplashScreen />
-  return <Outlet />
+  return (
+    <>
+      <AffiliateRefTracker />
+      <Outlet />
+    </>
+  )
 }
 
 /** Публичные страницы доступны только неавторизованным. */
@@ -139,6 +148,8 @@ const router = createBrowserRouter([
 
       /* --- Bounce трекинг-ссылок: доступен всем (шаг 6) --- */
       { path: '/c/:code', element: <ClickBounce /> },
+      { path: '/r/:code', element: <ClickBounce /> },
+      { path: '/partner', element: <Navigate to="/cabinet/offers" replace /> },
 
       /* --- Кабинет партнёра --- */
       {
@@ -155,6 +166,9 @@ const router = createBrowserRouter([
               },
               { path: '/cabinet/payouts', element: <PayoutsPage /> },
               { path: '/cabinet/referrals', element: <ReferralsPage /> },
+              { path: '/cabinet/b2c-referrals', element: <B2CReferralsPage /> },
+              { path: '/cabinet/leaderboard', element: <LeaderboardPage /> },
+              { path: '/cabinet/settings', element: <SettingsPage /> },
               { path: '/cabinet/profile', element: <ProfilePage /> },
             ],
           },

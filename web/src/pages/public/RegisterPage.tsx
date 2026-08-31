@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { AlertCircle, CheckCircle2, UserRound } from 'lucide-react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { AlertCircle, CheckCircle2, Gift, UserRound } from 'lucide-react'
 import { register } from '../../api/auth'
 import { ApiRequestError } from '../../api/client'
+import { useRegistrationBonus } from '../../api/queries'
 import { Button } from '../../components/Button'
 import { Field } from '../../components/Field'
 import { Input } from '../../components/Input'
+import { formatRubles } from '../../lib/format'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -21,6 +23,21 @@ interface FieldErrors {
 export function RegisterPage() {
   const navigate = useNavigate()
   const { code } = useParams<{ code?: string }>()
+  const [search] = useSearchParams()
+  const refParam = code ?? search.get('ref')
+  const bonusQ = useRegistrationBonus(refParam || undefined)
+  const bonus = bonusQ.data?.bonus
+
+  useEffect(() => {
+    if (refParam) {
+      try {
+        localStorage.setItem('aff_ref', refParam)
+        document.cookie = `aff_ref=${encodeURIComponent(refParam)}; path=/; max-age=${90 * 86400}; samesite=lax`
+      } catch {
+        // ignore
+      }
+    }
+  }, [refParam])
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -94,12 +111,17 @@ export function RegisterPage() {
         </div>
         <h1 className="text-center text-[19px] font-bold">Регистрация партнёра</h1>
 
-        {code && (
+        {(code || refParam) && (
           <div className="flex items-center gap-3 rounded-md border border-border bg-surface-2 p-4 text-lilac">
             <UserRound size={18} />
             <div className="flex min-w-0 flex-col gap-1">
               <span className="text-[12.5px] font-medium text-muted">Вас пригласил партнёр CashX</span>
-              <code className="break-all font-mono text-[14px] font-semibold tracking-[0.04em] text-text">{code}</code>
+              <code className="break-all font-mono text-[14px] font-semibold tracking-[0.04em] text-text">{code ?? refParam}</code>
+              {bonus != null && bonus > 0 && (
+                <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-violet-bright">
+                  <Gift size={14} /> Бонус {formatRubles(bonus * 100)} по промокоду
+                </span>
+              )}
             </div>
           </div>
         )}

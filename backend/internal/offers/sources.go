@@ -28,18 +28,22 @@ type SourceTotals struct {
 
 // Source is one tracking link (traffic source) with its statistics.
 type Source struct {
-	ID        string       `json:"id"`
-	Code      string       `json:"code"`
-	Name      string       `json:"name"`
-	Comment   *string      `json:"comment"`
-	GroupID   *string      `json:"group_id"`
-	GroupName *string      `json:"group_name"`
-	IsDefault bool         `json:"is_default"`
-	IsActive  bool         `json:"is_active"`
-	URL       string       `json:"url"`
-	Totals    SourceTotals `json:"totals"`
-	Totals30d SourceTotals `json:"totals_30d"`
-	CreatedAt string       `json:"created_at"`
+	ID                string       `json:"id"`
+	Code              string       `json:"code"`
+	Name              string       `json:"name"`
+	Comment           *string      `json:"comment"`
+	GroupID           *string      `json:"group_id"`
+	GroupName         *string      `json:"group_name"`
+	IsDefault         bool         `json:"is_default"`
+	IsActive          bool         `json:"is_active"`
+	URL               string       `json:"url"`
+	Type              string       `json:"type"`
+	RegistrationBonus *int         `json:"registration_bonus,omitempty"`
+	Domain            *string      `json:"domain,omitempty"`
+	RedirectID        *string      `json:"redirect_id,omitempty"`
+	Totals            SourceTotals `json:"totals"`
+	Totals30d         SourceTotals `json:"totals_30d"`
+	CreatedAt         string       `json:"created_at"`
 }
 
 // Group is a partner-scoped traffic flow used to organize sources.
@@ -155,10 +159,25 @@ func (s *Service) sourceFromRow(ctx context.Context, q *repository.Queries, r re
 	if err != nil {
 		return Source{}, err
 	}
+	var bonus *int
+	if r.RegistrationBonus.Valid {
+		v := int(r.RegistrationBonus.Int32)
+		bonus = &v
+	}
+	var domain *string
+	if r.Domain.Valid {
+		domain = &r.Domain.String
+	}
+	var redirectID *string
+	if r.RedirectID.Valid {
+		s := r.RedirectID.String()
+		redirectID = &s
+	}
 	return Source{
 		ID: r.ID, Code: r.Code, Name: r.Name, Comment: comment,
 		GroupID: groupID, GroupName: groupName, IsDefault: r.IsDefault, IsActive: r.IsActive,
-		URL: s.linkURL(r.Code), Totals: all, Totals30d: last30,
+		URL: s.linkURL(r.Code), Type: r.Type, RegistrationBonus: bonus, Domain: domain, RedirectID: redirectID,
+		Totals: all, Totals30d: last30,
 		CreatedAt: r.CreatedAt.Time.UTC().Format(time.RFC3339),
 	}, nil
 }

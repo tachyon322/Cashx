@@ -54,7 +54,7 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 
 const createPartnerProfile = `-- name: CreatePartnerProfile :one
 INSERT INTO partner_profiles (user_id, referral_code, referred_by)
-VALUES ($1, $2, $3) RETURNING id, user_id, referral_code, referred_by, is_approved, is_blocked, revshare_percent_bps, telegram_user_id, comment, created_at, updated_at
+VALUES ($1, $2, $3) RETURNING id, user_id, referral_code, referred_by, is_approved, is_blocked, is_owner, is_admin, revshare_percent_bps, telegram_user_id, comment, legacy_kazik_partner_id, created_at, updated_at
 `
 
 type CreatePartnerProfileParams struct {
@@ -73,9 +73,12 @@ func (q *Queries) CreatePartnerProfile(ctx context.Context, arg CreatePartnerPro
 		&i.ReferredBy,
 		&i.IsApproved,
 		&i.IsBlocked,
+		&i.IsOwner,
+		&i.IsAdmin,
 		&i.RevsharePercentBps,
 		&i.TelegramUserID,
 		&i.Comment,
+		&i.LegacyKazikPartnerID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -144,8 +147,7 @@ func (q *Queries) CreateStaffRoleAssignment(ctx context.Context, arg CreateStaff
 }
 
 const getPartnerProfileByID = `-- name: GetPartnerProfileByID :one
-SELECT id, user_id, referral_code, referred_by, is_approved, is_blocked, revshare_percent_bps, telegram_user_id, comment, created_at, updated_at
-FROM partner_profiles WHERE id = $1
+SELECT id, user_id, referral_code, referred_by, is_approved, is_blocked, is_owner, is_admin, revshare_percent_bps, telegram_user_id, comment, legacy_kazik_partner_id, created_at, updated_at FROM partner_profiles WHERE id = $1
 `
 
 func (q *Queries) GetPartnerProfileByID(ctx context.Context, id string) (PartnerProfile, error) {
@@ -158,9 +160,12 @@ func (q *Queries) GetPartnerProfileByID(ctx context.Context, id string) (Partner
 		&i.ReferredBy,
 		&i.IsApproved,
 		&i.IsBlocked,
+		&i.IsOwner,
+		&i.IsAdmin,
 		&i.RevsharePercentBps,
 		&i.TelegramUserID,
 		&i.Comment,
+		&i.LegacyKazikPartnerID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -168,8 +173,7 @@ func (q *Queries) GetPartnerProfileByID(ctx context.Context, id string) (Partner
 }
 
 const getPartnerProfileByReferralCode = `-- name: GetPartnerProfileByReferralCode :one
-SELECT id, user_id, referral_code, referred_by, is_approved, is_blocked, revshare_percent_bps, telegram_user_id, comment, created_at, updated_at
-FROM partner_profiles WHERE referral_code = $1
+SELECT id, user_id, referral_code, referred_by, is_approved, is_blocked, is_owner, is_admin, revshare_percent_bps, telegram_user_id, comment, legacy_kazik_partner_id, created_at, updated_at FROM partner_profiles WHERE referral_code = $1
 `
 
 func (q *Queries) GetPartnerProfileByReferralCode(ctx context.Context, referralCode string) (PartnerProfile, error) {
@@ -182,9 +186,12 @@ func (q *Queries) GetPartnerProfileByReferralCode(ctx context.Context, referralC
 		&i.ReferredBy,
 		&i.IsApproved,
 		&i.IsBlocked,
+		&i.IsOwner,
+		&i.IsAdmin,
 		&i.RevsharePercentBps,
 		&i.TelegramUserID,
 		&i.Comment,
+		&i.LegacyKazikPartnerID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -192,8 +199,7 @@ func (q *Queries) GetPartnerProfileByReferralCode(ctx context.Context, referralC
 }
 
 const getPartnerProfileByUserID = `-- name: GetPartnerProfileByUserID :one
-SELECT id, user_id, referral_code, referred_by, is_approved, is_blocked, revshare_percent_bps, telegram_user_id, comment, created_at, updated_at
-FROM partner_profiles WHERE user_id = $1
+SELECT id, user_id, referral_code, referred_by, is_approved, is_blocked, is_owner, is_admin, revshare_percent_bps, telegram_user_id, comment, legacy_kazik_partner_id, created_at, updated_at FROM partner_profiles WHERE user_id = $1
 `
 
 func (q *Queries) GetPartnerProfileByUserID(ctx context.Context, userID string) (PartnerProfile, error) {
@@ -206,9 +212,12 @@ func (q *Queries) GetPartnerProfileByUserID(ctx context.Context, userID string) 
 		&i.ReferredBy,
 		&i.IsApproved,
 		&i.IsBlocked,
+		&i.IsOwner,
+		&i.IsAdmin,
 		&i.RevsharePercentBps,
 		&i.TelegramUserID,
 		&i.Comment,
+		&i.LegacyKazikPartnerID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -518,7 +527,7 @@ SET is_approved = COALESCE($1, is_approved),
     comment = COALESCE($5, comment),
     updated_at = now()
 WHERE id = $6
-RETURNING id, user_id, referral_code, referred_by, is_approved, is_blocked, revshare_percent_bps, telegram_user_id, comment, created_at, updated_at
+RETURNING id, user_id, referral_code, referred_by, is_approved, is_blocked, is_owner, is_admin, revshare_percent_bps, telegram_user_id, comment, legacy_kazik_partner_id, created_at, updated_at
 `
 
 type UpdatePartnerProfileParams struct {
@@ -547,9 +556,12 @@ func (q *Queries) UpdatePartnerProfile(ctx context.Context, arg UpdatePartnerPro
 		&i.ReferredBy,
 		&i.IsApproved,
 		&i.IsBlocked,
+		&i.IsOwner,
+		&i.IsAdmin,
 		&i.RevsharePercentBps,
 		&i.TelegramUserID,
 		&i.Comment,
+		&i.LegacyKazikPartnerID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

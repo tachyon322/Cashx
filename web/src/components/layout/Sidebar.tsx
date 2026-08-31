@@ -5,12 +5,15 @@ import {
   BadgePercent,
   CircleUserRound,
   Coins,
+  Crown,
+  Gamepad2,
   Headphones,
   KeyRound,
   LayoutDashboard,
   Megaphone,
   Palette,
   ScrollText,
+  Settings2,
   Tags,
   UserCog,
   Users,
@@ -30,9 +33,12 @@ interface NavItem {
 const CABINET_NAV: readonly NavItem[] = [
   { to: '/cabinet', label: 'Главная', icon: LayoutDashboard },
   { to: '/cabinet/offers', label: 'Офферы', icon: Tags },
-  { to: '/cabinet/payouts', label: 'Выплаты', icon: Wallet },
+  { to: '/cabinet/b2c-referrals', label: 'Игроки', icon: Gamepad2 },
   { to: '/cabinet/referrals', label: 'Рефералы', icon: Users },
-  { to: '/cabinet/profile', label: 'Настройки', icon: CircleUserRound },
+  { to: '/cabinet/payouts', label: 'Выплаты', icon: Wallet },
+  { to: '/cabinet/leaderboard', label: 'Лидерборд', icon: Crown },
+  { to: '/cabinet/settings', label: 'Настройки', icon: Settings2 },
+  { to: '/cabinet/profile', label: 'Профиль', icon: CircleUserRound },
 ]
 
 const ADMIN_NAV: readonly NavItem[] = [

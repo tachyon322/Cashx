@@ -77,10 +77,10 @@ FROM partner_offer_accesses a WHERE a.status = 'active';
 -- name: CreateTrackingLink :one
 INSERT INTO tracking_links (partner_offer_access_id, code, name, comment, group_id, is_default)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, created_at, updated_at;
+RETURNING *;
 
 -- name: GetTrackingLinkByCode :one
-SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.is_active, tl.created_at,
+SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.is_active, tl.type, tl.domain, tl.redirect_id, tl.registration_bonus, tl.created_at,
        a.partner_id, a.offer_id, a.status AS access_status,
        o.destination_url AS offer_destination_url,
        p.destination_url AS project_destination_url
@@ -91,19 +91,16 @@ JOIN projects p ON p.id = o.project_id
 WHERE tl.code = $1;
 
 -- name: GetDefaultTrackingLinkByAccessID :one
-SELECT id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, created_at, updated_at
-FROM tracking_links
+SELECT * FROM tracking_links
 WHERE partner_offer_access_id = $1
 ORDER BY is_default DESC, created_at
 LIMIT 1;
 
 -- name: GetTrackingLinkByID :one
-SELECT id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, created_at, updated_at
-FROM tracking_links WHERE id = $1;
+SELECT * FROM tracking_links WHERE id = $1;
 
 -- name: ListTrackingLinksByAccessID :many
-SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.name, tl.comment, tl.group_id, tl.is_default, tl.is_active, tl.created_at, tl.updated_at,
-       g.name AS group_name
+SELECT tl.*, g.name AS group_name
 FROM tracking_links tl
 LEFT JOIN source_groups g ON g.id = tl.group_id
 WHERE tl.partner_offer_access_id = $1
@@ -118,7 +115,7 @@ SET name = $2,
     is_active = $6,
     updated_at = now()
 WHERE id = $1
-RETURNING id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, created_at, updated_at;
+RETURNING *;
 
 -- name: ClearDefaultTrackingLinks :exec
 UPDATE tracking_links SET is_default = false, updated_at = now()
@@ -139,19 +136,17 @@ SELECT count(*) FROM tracking_clicks WHERE tracking_link_id = $1;
 
 -- name: CreateSourceGroup :one
 INSERT INTO source_groups (partner_id, name, comment)
-VALUES ($1, $2, $3) RETURNING id, partner_id, name, comment, created_at, updated_at;
+VALUES ($1, $2, $3) RETURNING *;
 
 -- name: ListSourceGroupsByPartner :many
-SELECT id, partner_id, name, comment, created_at, updated_at
-FROM source_groups WHERE partner_id = $1 ORDER BY name;
+SELECT * FROM source_groups WHERE partner_id = $1 ORDER BY name;
 
 -- name: GetSourceGroupByID :one
-SELECT id, partner_id, name, comment, created_at, updated_at
-FROM source_groups WHERE id = $1;
+SELECT * FROM source_groups WHERE id = $1;
 
 -- name: UpdateSourceGroup :one
 UPDATE source_groups SET name = $2, comment = $3, updated_at = now()
-WHERE id = $1 RETURNING id, partner_id, name, comment, created_at, updated_at;
+WHERE id = $1 RETURNING *;
 
 -- name: DeleteSourceGroup :exec
 DELETE FROM source_groups WHERE id = $1;
@@ -164,3 +159,55 @@ UPDATE partner_offer_accesses SET rate_bps = $2, updated_at = now() WHERE partne
 
 -- name: GetAccessByID :one
 SELECT id, partner_id, offer_id, rate_bps, status, created_at, updated_at FROM partner_offer_accesses WHERE id = $1;
+
+-- name: CreateTrackingLinkFull :one
+INSERT INTO tracking_links (partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id)
+VALUES (sqlc.arg('partner_offer_access_id'), sqlc.arg('code'), sqlc.arg('name'), sqlc.narg('comment'), sqlc.narg('group_id'), sqlc.arg('is_default'), sqlc.arg('is_active'), COALESCE(sqlc.narg('type')::text, 'link'), sqlc.narg('registration_bonus'), sqlc.narg('domain'), sqlc.narg('redirect_id'), sqlc.narg('legacy_kazik_source_id'))
+RETURNING *;
+
+-- name: UpdateTrackingLinkFull :one
+UPDATE tracking_links
+SET name = COALESCE(sqlc.narg('name'), name),
+    code = COALESCE(sqlc.narg('code'), code),
+    comment = COALESCE(sqlc.narg('comment'), comment),
+    group_id = COALESCE(sqlc.narg('group_id'), group_id),
+    is_active = COALESCE(sqlc.narg('is_active'), is_active),
+    type = COALESCE(sqlc.narg('type'), type),
+    registration_bonus = COALESCE(sqlc.narg('registration_bonus'), registration_bonus),
+    domain = COALESCE(sqlc.narg('domain'), domain),
+    redirect_id = COALESCE(sqlc.narg('redirect_id'), redirect_id),
+    updated_at = now()
+WHERE id = sqlc.arg('id')
+RETURNING *;
+
+-- name: GetTrackingLinkByCodeExtended :one
+SELECT * FROM tracking_links WHERE code = $1;
+
+-- name: ResolvePromoCode :one
+SELECT * FROM tracking_links WHERE code = $1 AND type = 'promo' AND is_active = true LIMIT 1;
+
+-- name: GetRegistrationBonusByCode :one
+SELECT registration_bonus FROM tracking_links WHERE code = $1 AND is_active = true LIMIT 1;
+
+-- name: ListTrackingLinksByPartner :many
+SELECT tl.* FROM tracking_links tl
+JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
+WHERE a.partner_id = $1
+ORDER BY tl.created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountTrackingLinksByPartner :one
+SELECT count(*) FROM tracking_links tl
+JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
+WHERE a.partner_id = $1;
+
+-- name: SearchTrackingLinks :many
+SELECT tl.* FROM tracking_links tl
+JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
+WHERE a.partner_id = $1
+  AND ($2 = '' OR tl.name ILIKE '%' || $2 || '%' OR tl.code ILIKE '%' || $2 || '%')
+  AND ($3 = '' OR tl.type = $3)
+  AND ($4::uuid IS NULL OR tl.group_id = $4)
+  AND ($5::uuid IS NULL OR tl.redirect_id = $5)
+ORDER BY tl.created_at DESC
+LIMIT $6 OFFSET $7;

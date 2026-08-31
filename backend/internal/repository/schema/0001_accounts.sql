@@ -41,17 +41,20 @@ CREATE TABLE staff_role_assignments (
 );
 
 CREATE TABLE partner_profiles (
-    id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id              uuid NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    referral_code        text NOT NULL UNIQUE,
-    referred_by          uuid REFERENCES partner_profiles(id) ON DELETE SET NULL,
-    is_approved          boolean NOT NULL DEFAULT false,
-    is_blocked           boolean NOT NULL DEFAULT false,
-    revshare_percent_bps integer NOT NULL DEFAULT 4000 CHECK (revshare_percent_bps >= 0 AND revshare_percent_bps <= 10000),
-    telegram_user_id     bigint,
-    comment              text,
-    created_at           timestamptz NOT NULL DEFAULT now(),
-    updated_at           timestamptz NOT NULL DEFAULT now()
+    id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id                 uuid NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    referral_code           text NOT NULL UNIQUE,
+    referred_by             uuid REFERENCES partner_profiles(id) ON DELETE SET NULL,
+    is_approved             boolean NOT NULL DEFAULT false,
+    is_blocked              boolean NOT NULL DEFAULT false,
+    is_owner                boolean NOT NULL DEFAULT false,
+    is_admin                boolean NOT NULL DEFAULT false,
+    revshare_percent_bps    integer NOT NULL DEFAULT 4000 CHECK (revshare_percent_bps >= 0 AND revshare_percent_bps <= 10000),
+    telegram_user_id        bigint,
+    comment                 text,
+    legacy_kazik_partner_id text UNIQUE,
+    created_at              timestamptz NOT NULL DEFAULT now(),
+    updated_at              timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE partner_referrals (

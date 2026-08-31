@@ -76,6 +76,13 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 			r.Post("/cabinet/payouts/requests", w.CabinetPayoutRequest)
 			r.Post("/cabinet/payouts/requests/{id}/cancel", w.CabinetPayoutCancel)
 			r.Get("/cabinet/referrals", w.CabinetReferrals)
+			r.Get("/cabinet/b2c-referrals", s.CabinetB2CReferrals)
+			r.Get("/cabinet/b2c-referrals.csv", s.CabinetB2CReferralsCSV)
+			r.Get("/cabinet/config", s.CabinetConfig)
+			r.Get("/cabinet/registration-bonus", s.CabinetRegistrationBonus)
+			r.Post("/cabinet/attrib", s.CabinetAttrib)
+			r.Get("/cabinet/leaderboard", s.CabinetLeaderboard)
+			r.Get("/cabinet/transactions", s.CabinetTransactions)
 			r.Get("/cabinet/notifications", w.CabinetNotificationsList)
 			r.Post("/cabinet/notifications/read-all", w.CabinetNotificationsReadAll)
 			r.Post("/cabinet/notifications/{type}/{id}/read", w.CabinetNotificationRead)
@@ -101,6 +108,17 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 			r.Post("/admin/integration-keys", w.AdminIntegrationKeyCreate)
 			r.Post("/admin/integration-keys/{keyId}/rotate", w.AdminIntegrationKeyRotate)
 			r.Post("/admin/integration-keys/{keyId}/deactivate", w.AdminIntegrationKeyDeactivate)
+			r.Get("/admin/domains", s.AdminDomainsList)
+			r.Post("/admin/domains", s.AdminDomainCreate)
+			r.Patch("/admin/domains/{id}", s.AdminDomainUpdate)
+			r.Delete("/admin/domains/{id}", s.AdminDomainDelete)
+			r.Get("/admin/redirects", s.AdminRedirectsList)
+			r.Post("/admin/redirects", s.AdminRedirectCreate)
+			r.Patch("/admin/redirects/{id}", s.AdminRedirectUpdate)
+			r.Delete("/admin/redirects/{id}", s.AdminRedirectDelete)
+			r.Post("/admin/redirects/{id}/urls", s.AdminRedirectAddURL)
+			r.Patch("/admin/redirects/{id}/urls/{urlId}", s.AdminRedirectUpdateURL)
+			r.Delete("/admin/redirects/{id}/urls/{urlId}", s.AdminRedirectDeleteURL)
 		})
 
 		// Admin: support read access to partners/offers/projects.
@@ -149,10 +167,10 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 		// Admin: staff management (superadmin only).
 		r.Group(func(r chi.Router) {
 			r.Use(mw.RequireUser, mw.RequireStaff("superadmin"))
-			r.Get("/admin/staff", s.AdminStaffList)
-			r.Post("/admin/staff", s.AdminStaffCreate)
-			r.Get("/admin/staff/{id}", s.AdminStaffGet)
-			r.Patch("/admin/staff/{id}", s.AdminStaffUpdate)
+			r.Get("/admin/staff", w.AdminStaffList)
+			r.Post("/admin/staff", w.AdminStaffCreate)
+			r.Get("/admin/staff/{id}", w.AdminStaffGet)
+			r.Patch("/admin/staff/{id}", w.AdminStaffUpdate)
 		})
 
 		// Admin: audit (all staff roles can read the trail).

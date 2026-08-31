@@ -33,7 +33,7 @@ const decideWithdrawal = `-- name: DecideWithdrawal :one
 UPDATE withdrawal_requests
 SET status = $2, comment = COALESCE($3, comment), decided_at = now(), updated_at = now()
 WHERE id = $1 AND status = 'pending'
-RETURNING id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, paid_at, created_at, updated_at
+RETURNING id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, paid_at, legacy_kazik_withdrawal_id, created_at, updated_at
 `
 
 type DecideWithdrawalParams struct {
@@ -59,6 +59,7 @@ func (q *Queries) DecideWithdrawal(ctx context.Context, arg DecideWithdrawalPara
 		&i.Comment,
 		&i.DecidedAt,
 		&i.PaidAt,
+		&i.LegacyKazikWithdrawalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -86,8 +87,7 @@ func (q *Queries) GetPayoutRules(ctx context.Context) (PayoutRule, error) {
 }
 
 const getWithdrawalRequest = `-- name: GetWithdrawalRequest :one
-SELECT id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, paid_at, created_at, updated_at
-FROM withdrawal_requests WHERE id = $1
+SELECT id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, paid_at, legacy_kazik_withdrawal_id, created_at, updated_at FROM withdrawal_requests WHERE id = $1
 `
 
 func (q *Queries) GetWithdrawalRequest(ctx context.Context, id string) (WithdrawalRequest, error) {
@@ -107,6 +107,7 @@ func (q *Queries) GetWithdrawalRequest(ctx context.Context, id string) (Withdraw
 		&i.Comment,
 		&i.DecidedAt,
 		&i.PaidAt,
+		&i.LegacyKazikWithdrawalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -153,7 +154,7 @@ func (q *Queries) InsertPayoutTransfer(ctx context.Context, arg InsertPayoutTran
 const insertWithdrawalRequest = `-- name: InsertWithdrawalRequest :one
 INSERT INTO withdrawal_requests (partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, paid_at, created_at, updated_at
+RETURNING id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, paid_at, legacy_kazik_withdrawal_id, created_at, updated_at
 `
 
 type InsertWithdrawalRequestParams struct {
@@ -193,6 +194,7 @@ func (q *Queries) InsertWithdrawalRequest(ctx context.Context, arg InsertWithdra
 		&i.Comment,
 		&i.DecidedAt,
 		&i.PaidAt,
+		&i.LegacyKazikWithdrawalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -200,8 +202,7 @@ func (q *Queries) InsertWithdrawalRequest(ctx context.Context, arg InsertWithdra
 }
 
 const listWithdrawalsAdmin = `-- name: ListWithdrawalsAdmin :many
-SELECT w.id, w.partner_id, w.amount_kopecks, w.method, w.requisites, w.bank, w.fee_kopecks, w.usdt_amount, w.rate, w.status, w.comment, w.decided_at, w.paid_at, w.created_at, w.updated_at,
-       u.name AS partner_name, u.email AS partner_email
+SELECT w.id, w.partner_id, w.amount_kopecks, w.method, w.requisites, w.bank, w.fee_kopecks, w.usdt_amount, w.rate, w.status, w.comment, w.decided_at, w.paid_at, w.legacy_kazik_withdrawal_id, w.created_at, w.updated_at, u.name AS partner_name, u.email AS partner_email
 FROM withdrawal_requests w
 JOIN partner_profiles p ON p.id = w.partner_id
 JOIN users u ON u.id = p.user_id
@@ -218,23 +219,24 @@ type ListWithdrawalsAdminParams struct {
 }
 
 type ListWithdrawalsAdminRow struct {
-	ID            string             `json:"id"`
-	PartnerID     string             `json:"partner_id"`
-	AmountKopecks int64              `json:"amount_kopecks"`
-	Method        string             `json:"method"`
-	Requisites    string             `json:"requisites"`
-	Bank          pgtype.Text        `json:"bank"`
-	FeeKopecks    int64              `json:"fee_kopecks"`
-	UsdtAmount    pgtype.Numeric     `json:"usdt_amount"`
-	Rate          pgtype.Numeric     `json:"rate"`
-	Status        string             `json:"status"`
-	Comment       pgtype.Text        `json:"comment"`
-	DecidedAt     pgtype.Timestamptz `json:"decided_at"`
-	PaidAt        pgtype.Timestamptz `json:"paid_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	PartnerName   string             `json:"partner_name"`
-	PartnerEmail  string             `json:"partner_email"`
+	ID                      string             `json:"id"`
+	PartnerID               string             `json:"partner_id"`
+	AmountKopecks           int64              `json:"amount_kopecks"`
+	Method                  string             `json:"method"`
+	Requisites              string             `json:"requisites"`
+	Bank                    pgtype.Text        `json:"bank"`
+	FeeKopecks              int64              `json:"fee_kopecks"`
+	UsdtAmount              pgtype.Numeric     `json:"usdt_amount"`
+	Rate                    pgtype.Numeric     `json:"rate"`
+	Status                  string             `json:"status"`
+	Comment                 pgtype.Text        `json:"comment"`
+	DecidedAt               pgtype.Timestamptz `json:"decided_at"`
+	PaidAt                  pgtype.Timestamptz `json:"paid_at"`
+	LegacyKazikWithdrawalID pgtype.Text        `json:"legacy_kazik_withdrawal_id"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+	PartnerName             string             `json:"partner_name"`
+	PartnerEmail            string             `json:"partner_email"`
 }
 
 func (q *Queries) ListWithdrawalsAdmin(ctx context.Context, arg ListWithdrawalsAdminParams) ([]ListWithdrawalsAdminRow, error) {
@@ -265,6 +267,7 @@ func (q *Queries) ListWithdrawalsAdmin(ctx context.Context, arg ListWithdrawalsA
 			&i.Comment,
 			&i.DecidedAt,
 			&i.PaidAt,
+			&i.LegacyKazikWithdrawalID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.PartnerName,
@@ -281,8 +284,7 @@ func (q *Queries) ListWithdrawalsAdmin(ctx context.Context, arg ListWithdrawalsA
 }
 
 const listWithdrawalsByPartner = `-- name: ListWithdrawalsByPartner :many
-SELECT id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, paid_at, created_at, updated_at
-FROM withdrawal_requests WHERE partner_id = $1 ORDER BY created_at DESC LIMIT $2
+SELECT id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, paid_at, legacy_kazik_withdrawal_id, created_at, updated_at FROM withdrawal_requests WHERE partner_id = $1 ORDER BY created_at DESC LIMIT $2
 `
 
 type ListWithdrawalsByPartnerParams struct {
@@ -313,6 +315,7 @@ func (q *Queries) ListWithdrawalsByPartner(ctx context.Context, arg ListWithdraw
 			&i.Comment,
 			&i.DecidedAt,
 			&i.PaidAt,
+			&i.LegacyKazikWithdrawalID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -330,7 +333,7 @@ const markWithdrawalPaid = `-- name: MarkWithdrawalPaid :one
 UPDATE withdrawal_requests
 SET status = 'paid', comment = COALESCE($2, comment), paid_at = now(), updated_at = now()
 WHERE id = $1 AND status = 'approved'
-RETURNING id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, paid_at, created_at, updated_at
+RETURNING id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, paid_at, legacy_kazik_withdrawal_id, created_at, updated_at
 `
 
 type MarkWithdrawalPaidParams struct {
@@ -355,6 +358,7 @@ func (q *Queries) MarkWithdrawalPaid(ctx context.Context, arg MarkWithdrawalPaid
 		&i.Comment,
 		&i.DecidedAt,
 		&i.PaidAt,
+		&i.LegacyKazikWithdrawalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

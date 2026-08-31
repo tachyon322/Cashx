@@ -96,9 +96,18 @@ const createWallet = `-- name: CreateWallet :one
 INSERT INTO wallets (partner_id) VALUES ($1) RETURNING id, partner_id, available_kopecks, reserved_kopecks, created_at, updated_at
 `
 
-func (q *Queries) CreateWallet(ctx context.Context, partnerID string) (Wallet, error) {
+type CreateWalletRow struct {
+	ID               string             `json:"id"`
+	PartnerID        string             `json:"partner_id"`
+	AvailableKopecks int64              `json:"available_kopecks"`
+	ReservedKopecks  int64              `json:"reserved_kopecks"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CreateWallet(ctx context.Context, partnerID string) (CreateWalletRow, error) {
 	row := q.db.QueryRow(ctx, createWallet, partnerID)
-	var i Wallet
+	var i CreateWalletRow
 	err := row.Scan(
 		&i.ID,
 		&i.PartnerID,
@@ -192,9 +201,18 @@ const getWalletByID = `-- name: GetWalletByID :one
 SELECT id, partner_id, available_kopecks, reserved_kopecks, created_at, updated_at FROM wallets WHERE id = $1
 `
 
-func (q *Queries) GetWalletByID(ctx context.Context, id string) (Wallet, error) {
+type GetWalletByIDRow struct {
+	ID               string             `json:"id"`
+	PartnerID        string             `json:"partner_id"`
+	AvailableKopecks int64              `json:"available_kopecks"`
+	ReservedKopecks  int64              `json:"reserved_kopecks"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetWalletByID(ctx context.Context, id string) (GetWalletByIDRow, error) {
 	row := q.db.QueryRow(ctx, getWalletByID, id)
-	var i Wallet
+	var i GetWalletByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.PartnerID,
@@ -210,9 +228,18 @@ const getWalletByPartnerID = `-- name: GetWalletByPartnerID :one
 SELECT id, partner_id, available_kopecks, reserved_kopecks, created_at, updated_at FROM wallets WHERE partner_id = $1
 `
 
-func (q *Queries) GetWalletByPartnerID(ctx context.Context, partnerID string) (Wallet, error) {
+type GetWalletByPartnerIDRow struct {
+	ID               string             `json:"id"`
+	PartnerID        string             `json:"partner_id"`
+	AvailableKopecks int64              `json:"available_kopecks"`
+	ReservedKopecks  int64              `json:"reserved_kopecks"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetWalletByPartnerID(ctx context.Context, partnerID string) (GetWalletByPartnerIDRow, error) {
 	row := q.db.QueryRow(ctx, getWalletByPartnerID, partnerID)
-	var i Wallet
+	var i GetWalletByPartnerIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.PartnerID,

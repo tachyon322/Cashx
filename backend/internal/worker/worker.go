@@ -4,10 +4,12 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"cashx/internal/outbox"
 	"cashx/internal/platform"
@@ -17,9 +19,11 @@ import (
 
 // Runner owns the worker loops.
 type Runner struct {
-	Pool   *pgxpool.Pool
-	Cfg    platform.Config
-	Log    *slog.Logger
+	Pool     *pgxpool.Pool
+	Cfg      platform.Config
+	Log      *slog.Logger
+	Redis    *redis.Client
+	Counters *tracking.Counters
 	Registry outbox.Registry
 }
 
@@ -28,9 +32,19 @@ func New(pool *pgxpool.Pool, cfg platform.Config, log *slog.Logger) *Runner {
 	return &Runner{Pool: pool, Cfg: cfg, Log: log, Registry: outbox.NewRegistry(cfg, log)}
 }
 
-// Run starts both loops until ctx is done.
+// NewWithRedis builds the worker with Redis counters.
+func NewWithRedis(pool *pgxpool.Pool, cfg platform.Config, log *slog.Logger, rdb *redis.Client) *Runner {
+	c := tracking.NewCounters(rdb)
+	tracking.DefaultCounters = c
+	return &Runner{Pool: pool, Cfg: cfg, Log: log, Redis: rdb, Counters: c, Registry: outbox.NewRegistry(cfg, log)}
+}
+
+// Run starts all loops until ctx is done.
 func (r *Runner) Run(ctx context.Context) {
 	go r.outboxLoop(ctx)
+	go r.countersLoop(ctx)
+	go r.syncPayoutLoop(ctx)
+	go r.reconcileLoop(ctx)
 	r.statsLoop(ctx)
 }
 
@@ -233,4 +247,84 @@ func (r *Runner) recomputeStats(ctx context.Context) error {
 		}
 		return nil
 	})
+}
+
+// countersLoop flushes Redis click buffer every 5s.
+func (r *Runner) countersLoop(ctx context.Context) {
+	if r.Counters == nil || r.Redis == nil {
+		return
+	}
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := r.Counters.Flush(ctx, func(ctx context.Context, linkID, ip, ua, ref string, at time.Time) error {
+				q := repository.New(r.Pool)
+				_, err := q.CreateTrackingClick(ctx, repository.CreateTrackingClickParams{
+					TrackingLinkID: linkID,
+					Column2:        ip,
+					UserAgent:      repository.TextPtr(&ua),
+					Referrer:       repository.TextPtr(&ref),
+				})
+				return err
+			}); err != nil {
+				r.Log.Error("counters flush", "err", err)
+			}
+		}
+	}
+}
+
+// syncPayoutLoop syncs payout_rules to Redis every 5m (for kazik parity).
+func (r *Runner) syncPayoutLoop(ctx context.Context) {
+	if r.Redis == nil {
+		return
+	}
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	// Run once at start
+	_ = r.syncPayoutOnce(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := r.syncPayoutOnce(ctx); err != nil {
+				r.Log.Error("sync payout_rules", "err", err)
+			}
+		}
+	}
+}
+
+func (r *Runner) syncPayoutOnce(ctx context.Context) error {
+	q := repository.New(r.Pool)
+	row, err := q.GetPayoutRules(ctx)
+	if err != nil {
+		return err
+	}
+	pipe := r.Redis.Pipeline()
+	pipe.Set(ctx, "affiliate:usdt_rate", fmt.Sprintf("%v", row.UsdtRate), 0)
+	pipe.Set(ctx, "affiliate:sbp_fee_flat", row.SbpFeeFlatKopecks, 0)
+	pipe.Set(ctx, "affiliate:sbp_fee_percent", row.SbpFeePercentBps, 0)
+	pipe.Set(ctx, "affiliate:min_withdraw", row.MinWithdrawKopecks, 0)
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
+// reconcileLoop checks drift hourly (stub, logs if >1% diff).
+func (r *Runner) reconcileLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Simple check: compare tracking_clicks last hour vs Redis stats
+			// For now just log that reconcile ran.
+			r.Log.Info("reconcile tick")
+		}
+	}
 }

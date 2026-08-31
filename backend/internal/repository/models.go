@@ -197,6 +197,16 @@ type OutboxMessage struct {
 	SentAt        pgtype.Timestamptz `json:"sent_at"`
 }
 
+type PartnerDomain struct {
+	ID                  string             `json:"id"`
+	Url                 string             `json:"url"`
+	IsActive            bool               `json:"is_active"`
+	Comment             pgtype.Text        `json:"comment"`
+	LegacyKazikDomainID pgtype.Text        `json:"legacy_kazik_domain_id"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
 type PartnerOfferAccess struct {
 	ID        string             `json:"id"`
 	PartnerID string             `json:"partner_id"`
@@ -208,17 +218,20 @@ type PartnerOfferAccess struct {
 }
 
 type PartnerProfile struct {
-	ID                 string             `json:"id"`
-	UserID             string             `json:"user_id"`
-	ReferralCode       string             `json:"referral_code"`
-	ReferredBy         pgtype.UUID        `json:"referred_by"`
-	IsApproved         bool               `json:"is_approved"`
-	IsBlocked          bool               `json:"is_blocked"`
-	RevsharePercentBps int32              `json:"revshare_percent_bps"`
-	TelegramUserID     pgtype.Int8        `json:"telegram_user_id"`
-	Comment            pgtype.Text        `json:"comment"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ID                   string             `json:"id"`
+	UserID               string             `json:"user_id"`
+	ReferralCode         string             `json:"referral_code"`
+	ReferredBy           pgtype.UUID        `json:"referred_by"`
+	IsApproved           bool               `json:"is_approved"`
+	IsBlocked            bool               `json:"is_blocked"`
+	IsOwner              bool               `json:"is_owner"`
+	IsAdmin              bool               `json:"is_admin"`
+	RevsharePercentBps   int32              `json:"revshare_percent_bps"`
+	TelegramUserID       pgtype.Int8        `json:"telegram_user_id"`
+	Comment              pgtype.Text        `json:"comment"`
+	LegacyKazikPartnerID pgtype.Text        `json:"legacy_kazik_partner_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }
 
 type PartnerReferral struct {
@@ -296,6 +309,25 @@ type ProjectSetting struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+type RedirectPool struct {
+	ID                    string             `json:"id"`
+	Name                  string             `json:"name"`
+	Comment               pgtype.Text        `json:"comment"`
+	LegacyKazikRedirectID pgtype.Text        `json:"legacy_kazik_redirect_id"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+}
+
+type RedirectPoolUrl struct {
+	ID         string             `json:"id"`
+	RedirectID string             `json:"redirect_id"`
+	Url        string             `json:"url"`
+	Weight     int32              `json:"weight"`
+	IsActive   bool               `json:"is_active"`
+	SortOrder  int32              `json:"sort_order"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
 type ReferralReward struct {
 	ID                  string             `json:"id"`
 	CommissionEarningID string             `json:"commission_earning_id"`
@@ -319,12 +351,13 @@ type Session struct {
 }
 
 type SourceGroup struct {
-	ID        string             `json:"id"`
-	PartnerID string             `json:"partner_id"`
-	Name      string             `json:"name"`
-	Comment   pgtype.Text        `json:"comment"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID                 string             `json:"id"`
+	PartnerID          string             `json:"partner_id"`
+	Name               string             `json:"name"`
+	Comment            pgtype.Text        `json:"comment"`
+	LegacyKazikGroupID pgtype.Text        `json:"legacy_kazik_group_id"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
 type StaffRoleAssignment struct {
@@ -362,6 +395,11 @@ type TrackingLink struct {
 	GroupID              pgtype.UUID        `json:"group_id"`
 	IsDefault            bool               `json:"is_default"`
 	IsActive             bool               `json:"is_active"`
+	Type                 string             `json:"type"`
+	RegistrationBonus    pgtype.Int4        `json:"registration_bonus"`
+	Domain               pgtype.Text        `json:"domain"`
+	RedirectID           pgtype.UUID        `json:"redirect_id"`
+	LegacyKazikSourceID  pgtype.Text        `json:"legacy_kazik_source_id"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }
@@ -399,12 +437,13 @@ type Verification struct {
 }
 
 type Wallet struct {
-	ID               string             `json:"id"`
-	PartnerID        string             `json:"partner_id"`
-	AvailableKopecks int64              `json:"available_kopecks"`
-	ReservedKopecks  int64              `json:"reserved_kopecks"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	ID                 string             `json:"id"`
+	PartnerID          string             `json:"partner_id"`
+	AvailableKopecks   int64              `json:"available_kopecks"`
+	ReservedKopecks    int64              `json:"reserved_kopecks"`
+	LegacyKazikBalance pgtype.Int4        `json:"legacy_kazik_balance"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
 type WalletLedgerEntry struct {
@@ -421,19 +460,20 @@ type WalletLedgerEntry struct {
 }
 
 type WithdrawalRequest struct {
-	ID            string             `json:"id"`
-	PartnerID     string             `json:"partner_id"`
-	AmountKopecks int64              `json:"amount_kopecks"`
-	Method        string             `json:"method"`
-	Requisites    string             `json:"requisites"`
-	Bank          pgtype.Text        `json:"bank"`
-	FeeKopecks    int64              `json:"fee_kopecks"`
-	UsdtAmount    pgtype.Numeric     `json:"usdt_amount"`
-	Rate          pgtype.Numeric     `json:"rate"`
-	Status        string             `json:"status"`
-	Comment       pgtype.Text        `json:"comment"`
-	DecidedAt     pgtype.Timestamptz `json:"decided_at"`
-	PaidAt        pgtype.Timestamptz `json:"paid_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID                      string             `json:"id"`
+	PartnerID               string             `json:"partner_id"`
+	AmountKopecks           int64              `json:"amount_kopecks"`
+	Method                  string             `json:"method"`
+	Requisites              string             `json:"requisites"`
+	Bank                    pgtype.Text        `json:"bank"`
+	FeeKopecks              int64              `json:"fee_kopecks"`
+	UsdtAmount              pgtype.Numeric     `json:"usdt_amount"`
+	Rate                    pgtype.Numeric     `json:"rate"`
+	Status                  string             `json:"status"`
+	Comment                 pgtype.Text        `json:"comment"`
+	DecidedAt               pgtype.Timestamptz `json:"decided_at"`
+	PaidAt                  pgtype.Timestamptz `json:"paid_at"`
+	LegacyKazikWithdrawalID pgtype.Text        `json:"legacy_kazik_withdrawal_id"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
 }

@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Clock, Wallet, ArrowUpRight, Copy, Filter, CalendarDays } from 'lucide-react'
+import { Clock, Wallet, ArrowUpRight, Copy, Filter, CalendarDays, Download } from 'lucide-react'
 import { ApiRequestError } from '../../api/client'
-import { useCancelPayout, usePayoutConfig, usePayouts, useRequestPayout } from '../../api/queries'
+import { useCabinetTransactions, useCancelPayout, usePayoutConfig, usePayouts, useRequestPayout } from '../../api/queries'
 import type { PayoutRequestInput } from '../../api/queries'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
@@ -52,6 +52,7 @@ export function PayoutsPage() {
   const toast = useToast()
   const payoutsQuery = usePayouts()
   const configQuery = usePayoutConfig()
+  const txQuery = useCabinetTransactions()
   const request = useRequestPayout()
   const cancel = useCancelPayout()
 
@@ -68,6 +69,8 @@ export function PayoutsPage() {
   if (payoutsQuery.isLoading || configQuery.isLoading) return <PayoutsSkeleton />
   if (payoutsQuery.error || configQuery.error)
     return <EmptyState title="Не удалось загрузить данные" hint="Попробуйте обновить страницу через несколько секунд" />
+
+  const txItems = txQuery.data?.items ?? []
 
   const balance = payoutsQuery.data?.balance
   const requests = payoutsQuery.data?.requests ?? []
@@ -240,6 +243,20 @@ export function PayoutsPage() {
     { key: 'created', header: 'Дата', render: (row) => (row.created_at ? formatDateTime(row.created_at) : '—') },
   ]
 
+  const feePreview = useMemo(() => {
+    const raw = amount.trim().replace(',', '.')
+    const rub = Number.parseFloat(raw)
+    const k = Number.isFinite(rub) ? Math.round(rub * 100) : 0
+    if (k <= 0 || !rules) return null
+    if (method === 'sbp') {
+      const flat = rules.sbp_fee_flat_kopecks ?? 0
+      const pct = rules.sbp_fee_percent_bps ?? 0
+      const fee = flat + Math.round((k * pct) / 10000)
+      return fee
+    }
+    return 0
+  }, [amount, method, rules])
+
   return (
     <div className="flex flex-col gap-4">
       {/* top 4 cards */}
@@ -359,13 +376,54 @@ export function PayoutsPage() {
       </Card>
 
       {/* Ledger as second table like before */}
-      <Card neon title={<span className="text-[12px] font-bold uppercase tracking-[0.08em]">История операций</span>} subtitle="Движения по балансу">
+      <Card
+        neon
+        title={<span className="text-[12px] font-bold uppercase tracking-[0.08em]">История операций</span>}
+        subtitle="Движения по балансу"
+        actions={
+          <a
+            href="/api/v1/cabinet/transactions?format=csv"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[rgba(168,85,247,0.22)] bg-surface-0 px-3 text-[12px] text-muted hover:text-text"
+          >
+            <Download size={14} /> CSV
+          </a>
+        }
+      >
         {history.length === 0 ? (
           <EmptyState title="Операций пока нет" hint="Здесь появятся начисления и списания" />
         ) : (
           <Table columns={historyColumns} rows={history} rowKey={(r) => r.id ?? `${r.created_at}-${r.type}`} compact />
         )}
       </Card>
+
+      {txItems.length > 0 && (
+        <Card
+          neon
+          title={<span className="text-[12px] font-bold uppercase tracking-[0.08em]">Транзакции (200)</span>}
+          subtitle="Последние 200 движений кошелька"
+          actions={
+            <a
+              href="/api/v1/cabinet/transactions?format=csv"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[rgba(168,85,247,0.22)] bg-surface-0 px-3 text-[12px] text-muted hover:text-text"
+            >
+              <Download size={14} /> CSV (200)
+            </a>
+          }
+        >
+          <Table
+            columns={
+              [
+                { key: 'type', header: 'Тип', render: (row: any) => LEDGER_LABELS[row.type] ?? row.type },
+                { key: 'amount', header: 'Сумма', align: 'right', render: (row: any) => formatRubles(row.amount_kopecks) },
+                { key: 'created', header: 'Дата', render: (row: any) => (row.created_at ? formatDateTime(row.created_at) : '—') },
+              ] as any
+            }
+            rows={txItems as any}
+            rowKey={(r: any) => r.id}
+            compact
+          />
+        </Card>
+      )}
 
       {/* Request modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Запросить выплату">
@@ -404,6 +462,27 @@ export function PayoutsPage() {
               onChange={(e) => setRequisites(e.target.value)}
             />
           </Field>
+          {feePreview != null && (
+            <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-[12px] text-muted">
+              Комиссия: <span className="font-semibold text-text">{formatRubles(feePreview)}</span> · К выплате:{' '}
+              <span className="font-semibold text-text">
+                {formatRubles(
+                  (() => {
+                    const raw = amount.trim().replace(',', '.')
+                    const rub = Number.parseFloat(raw)
+                    const k = Number.isFinite(rub) ? Math.round(rub * 100) : 0
+                    return Math.max(0, k - feePreview)
+                  })(),
+                )}
+              </span>
+              {rules?.usdt_rate != null && method === 'usdt' && (
+                <span>
+                  {' '}
+                  · ~{((Math.max(0, (Number.parseFloat(amount.trim().replace(',', '.')) || 0) * 100 - feePreview) / 100 / (rules.usdt_rate as number)).toFixed(2))} USDT
+                </span>
+              )}
+            </div>
+          )}
           {method === 'sbp' && (
             <Field label="Банк (необязательно)" htmlFor="payout-bank-modal">
               <Input id="payout-bank-modal" placeholder="Название банка" value={bank} onChange={(e) => setBank(e.target.value)} />

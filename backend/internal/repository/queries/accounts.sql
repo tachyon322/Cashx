@@ -21,19 +21,16 @@ SELECT role, project_id FROM staff_role_assignments WHERE user_id = $1;
 
 -- name: CreatePartnerProfile :one
 INSERT INTO partner_profiles (user_id, referral_code, referred_by)
-VALUES ($1, $2, $3) RETURNING id, user_id, referral_code, referred_by, is_approved, is_blocked, revshare_percent_bps, telegram_user_id, comment, created_at, updated_at;
+VALUES ($1, $2, $3) RETURNING *;
 
 -- name: GetPartnerProfileByUserID :one
-SELECT id, user_id, referral_code, referred_by, is_approved, is_blocked, revshare_percent_bps, telegram_user_id, comment, created_at, updated_at
-FROM partner_profiles WHERE user_id = $1;
+SELECT * FROM partner_profiles WHERE user_id = $1;
 
 -- name: GetPartnerProfileByID :one
-SELECT id, user_id, referral_code, referred_by, is_approved, is_blocked, revshare_percent_bps, telegram_user_id, comment, created_at, updated_at
-FROM partner_profiles WHERE id = $1;
+SELECT * FROM partner_profiles WHERE id = $1;
 
 -- name: GetPartnerProfileByReferralCode :one
-SELECT id, user_id, referral_code, referred_by, is_approved, is_blocked, revshare_percent_bps, telegram_user_id, comment, created_at, updated_at
-FROM partner_profiles WHERE referral_code = $1;
+SELECT * FROM partner_profiles WHERE referral_code = $1;
 
 -- name: UpdatePartnerProfile :one
 UPDATE partner_profiles
@@ -44,7 +41,7 @@ SET is_approved = COALESCE(sqlc.narg('is_approved'), is_approved),
     comment = COALESCE(sqlc.narg('comment'), comment),
     updated_at = now()
 WHERE id = sqlc.arg('id')
-RETURNING id, user_id, referral_code, referred_by, is_approved, is_blocked, revshare_percent_bps, telegram_user_id, comment, created_at, updated_at;
+RETURNING *;
 
 -- name: SetPartnerRevShare :exec
 UPDATE partner_profiles SET revshare_percent_bps = $2, updated_at = now() WHERE id = $1;

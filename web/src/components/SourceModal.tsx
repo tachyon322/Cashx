@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { components } from '../api/schema'
-import { useCreateSource, useUpdateSource } from '../api/queries'
+import { useCreateSource, useUpdateSource, useCabinetConfig, useRedirectPools } from '../api/queries'
 import { Button } from './Button'
 import { Field } from './Field'
 import { Input } from './Input'
@@ -9,6 +9,7 @@ import { Select } from './Select'
 import { Textarea } from './Textarea'
 import { useToast } from './Toast'
 import { sourceErrorMessage } from '../lib/sourceErrors'
+import { PROMO_BONUS_DEFAULT } from '../lib/affiliate'
 
 type Source = components['schemas']['Source']
 type SourceGroup = components['schemas']['SourceGroup']
@@ -25,6 +26,8 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
   const toast = useToast()
   const create = useCreateSource(offerId)
   const update = useUpdateSource(offerId)
+  const configQ = useCabinetConfig()
+  const redirectsQ = useRedirectPools()
 
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
@@ -32,6 +35,13 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
   const [groupId, setGroupId] = useState('')
   const [isActive, setIsActive] = useState(true)
   const [isDefault, setIsDefault] = useState(false)
+  const [type, setType] = useState<'link' | 'promo'>('link')
+  const [bonus, setBonus] = useState(String(PROMO_BONUS_DEFAULT))
+  const [domain, setDomain] = useState('')
+  const [redirectId, setRedirectId] = useState('')
+
+  const domains = configQ.data?.domains ?? []
+  const redirectPools = redirectsQ.data?.items ?? []
 
   useEffect(() => {
     if (!open) return
@@ -42,6 +52,12 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
       setGroupId(initial.group_id ?? '')
       setIsActive(initial.is_active ?? true)
       setIsDefault(initial.is_default ?? false)
+      // try to infer type from existing source: if totals has promo? fallback to link
+      const t = (initial as any).type ?? 'link'
+      setType(t === 'promo' ? 'promo' : 'link')
+      setBonus(String((initial as any).registration_bonus ?? PROMO_BONUS_DEFAULT))
+      setDomain((initial as any).domain ?? '')
+      setRedirectId((initial as any).redirect_id ?? '')
     } else {
       setName('')
       setCode('')
@@ -49,6 +65,10 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
       setGroupId('')
       setIsActive(true)
       setIsDefault(false)
+      setType('link')
+      setBonus(String(PROMO_BONUS_DEFAULT))
+      setDomain('')
+      setRedirectId('')
     }
   }, [open, initial])
 
@@ -60,15 +80,29 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
       toast.error('Укажите название источника')
       return
     }
-    const payload = {
+    const basePayload: any = {
       name: trimmedName,
       code: code.trim() || null,
       comment: comment.trim() || null,
       group_id: groupId || null,
     }
+    // Include promo-specific fields
+    if (type === 'promo') {
+      const nb = Number.parseInt(bonus, 10)
+      if (!Number.isFinite(nb) || nb < 0) {
+        toast.error('Укажите корректный бонус')
+        return
+      }
+      basePayload.type = 'promo'
+      basePayload.registration_bonus = nb
+    } else {
+      basePayload.type = 'link'
+      if (domain) basePayload.domain = domain
+      if (redirectId) basePayload.redirect_id = redirectId
+    }
     if (initial?.id) {
       update.mutate(
-        { ...payload, id: initial.id, is_active: isActive, is_default: isDefault },
+        { ...basePayload, id: initial.id, is_active: isActive, is_default: isDefault },
         {
           onSuccess: () => {
             toast.success('Источник обновлён')
@@ -79,7 +113,7 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
       )
     } else {
       create.mutate(
-        { ...payload, is_default: isDefault },
+        { ...basePayload, is_default: isDefault },
         {
           onSuccess: () => {
             toast.success('Источник создан')
@@ -123,6 +157,46 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
             ))}
           </Select>
         </Field>
+
+        <Field label="Тип">
+          <Select value={type} onChange={(e) => setType(e.target.value as 'link' | 'promo')}>
+            <option value="link">Ссылка</option>
+            <option value="promo">Промокод</option>
+          </Select>
+        </Field>
+
+        {type === 'promo' ? (
+          <Field label="Бонус при регистрации, ₽" hint="Начисляется игроку по промокоду">
+            <Input type="number" min="0" step="1" value={bonus} onChange={(e) => setBonus(e.target.value)} placeholder="500" />
+          </Field>
+        ) : (
+          <>
+            {domains.length > 0 && (
+              <Field label="Домен">
+                <Select value={domain} onChange={(e) => setDomain(e.target.value)}>
+                  <option value="">Авто (дефолтный)</option>
+                  {domains.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+            {redirectPools.length > 0 && (
+              <Field label="Редирект (взвешенный пул)">
+                <Select value={redirectId} onChange={(e) => setRedirectId(e.target.value)}>
+                  <option value="">Без редиректа (прямо на оффер)</option>
+                  {redirectPools.map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+          </>
+        )}
 
         <Field label="Заметка">
           <Textarea
