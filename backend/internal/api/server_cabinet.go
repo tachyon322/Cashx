@@ -625,36 +625,43 @@ func (s *Server) offerHistory(ctx context.Context, partnerID, offerID string, fr
 	}
 	link, err := s.Q.GetDefaultTrackingLinkByAccessID(ctx, access.ID)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, pgx.ErrNoRows) || err.Error() == "no rows in result set" {
+			// No default link yet — return earnings only, no link-dependent history.
+			link = repository.TrackingLink{}
+		} else {
+			return nil, err
+		}
 	}
 	var out []HistoryRow
-	clicks, err := s.Q.HistoryClicksByLink(ctx, repository.HistoryClicksByLinkParams{
-		TrackingLinkID: link.ID, CreatedAt: repository.TimePtr(&from), CreatedAt_2: repository.TimePtr(&to), Limit: int32(limit),
-	})
-	if err != nil {
-		return nil, err
-	}
-	for _, c := range clicks {
-		out = append(out, HistoryRow{ID: "click_" + strconv.FormatInt(c.ID, 10), Kind: "click", OccurredAt: c.CreatedAt.Time})
-	}
-	attrs, err := s.Q.HistoryAttributionsByLink(ctx, repository.HistoryAttributionsByLinkParams{
-		TrackingLinkID: link.ID, FirstSeenAt: repository.TimePtr(&from), FirstSeenAt_2: repository.TimePtr(&to), Limit: int32(limit),
-	})
-	if err != nil {
-		return nil, err
-	}
-	for _, a := range attrs {
-		out = append(out, HistoryRow{ID: "reg_" + strconv.FormatInt(a.ID, 10), Kind: "registration", OccurredAt: a.FirstSeenAt.Time})
-	}
-	convs, err := s.Q.HistoryConversionsByLink(ctx, repository.HistoryConversionsByLinkParams{
-		TrackingLinkID: link.ID, OccurredAt: repository.TimePtr(&from), OccurredAt_2: repository.TimePtr(&to), Limit: int32(limit),
-	})
-	if err != nil {
-		return nil, err
-	}
-	for _, c := range convs {
-		amt := c.AmountKopecks
-		out = append(out, HistoryRow{ID: "pay_" + strconv.FormatInt(c.ID, 10), Kind: "payment", AmountKopecks: &amt, OccurredAt: c.OccurredAt.Time})
+	if link.ID != "" {
+		clicks, err := s.Q.HistoryClicksByLink(ctx, repository.HistoryClicksByLinkParams{
+			TrackingLinkID: link.ID, CreatedAt: repository.TimePtr(&from), CreatedAt_2: repository.TimePtr(&to), Limit: int32(limit),
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range clicks {
+			out = append(out, HistoryRow{ID: "click_" + strconv.FormatInt(c.ID, 10), Kind: "click", OccurredAt: c.CreatedAt.Time})
+		}
+		attrs, err := s.Q.HistoryAttributionsByLink(ctx, repository.HistoryAttributionsByLinkParams{
+			TrackingLinkID: link.ID, FirstSeenAt: repository.TimePtr(&from), FirstSeenAt_2: repository.TimePtr(&to), Limit: int32(limit),
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range attrs {
+			out = append(out, HistoryRow{ID: "reg_" + strconv.FormatInt(a.ID, 10), Kind: "registration", OccurredAt: a.FirstSeenAt.Time})
+		}
+		convs, err := s.Q.HistoryConversionsByLink(ctx, repository.HistoryConversionsByLinkParams{
+			TrackingLinkID: link.ID, OccurredAt: repository.TimePtr(&from), OccurredAt_2: repository.TimePtr(&to), Limit: int32(limit),
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range convs {
+			amt := c.AmountKopecks
+			out = append(out, HistoryRow{ID: "pay_" + strconv.FormatInt(c.ID, 10), Kind: "payment", AmountKopecks: &amt, OccurredAt: c.OccurredAt.Time})
+		}
 	}
 	earnings, err := s.Q.HistoryEarningsByPartnerOffer(ctx, repository.HistoryEarningsByPartnerOfferParams{
 		PartnerID: partnerID, OfferID: offerID, CreatedAt: repository.TimePtr(&from), CreatedAt_2: repository.TimePtr(&to), Limit: int32(limit),
