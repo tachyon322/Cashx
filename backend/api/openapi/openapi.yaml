@@ -1367,6 +1367,128 @@ paths:
                     items:
                       $ref: '#/components/schemas/AuditEntry'
 
+  /admin/staff:
+    get:
+      operationId: adminStaffList
+      summary: List staff members (superadmin only)
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StaffMember'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: adminStaffCreate
+      summary: Create staff member (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, roles]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                roles:
+                  type: array
+                  items:
+                    type: string
+                    enum: [superadmin, project_manager, finance, content_manager, support]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffMember'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /admin/staff/{id}:
+    get:
+      operationId: adminStaffGet
+      summary: Get staff member
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffMember'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: adminStaffUpdate
+      summary: Update staff member (superadmin only)
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                is_active:
+                  type: boolean
+                roles:
+                  type: array
+                  items:
+                    type: string
+                    enum: [superadmin, project_manager, finance, content_manager, support]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffMember'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /integrations/events:
     post:
       operationId: integrationsEvent
@@ -2139,6 +2261,27 @@ components:
           type: object
           nullable: true
         created_at:
+          type: string
+          format: date-time
+    StaffMember:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        is_active:
+          type: boolean
+        roles:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
           type: string
           format: date-time
     EventInput:

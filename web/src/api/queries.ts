@@ -814,6 +814,78 @@ export function useAdminAnnouncementDelete() {
   })
 }
 
+/* --- Админ: команда / стафф --- */
+
+export interface StaffMember {
+  id: string
+  email: string
+  name: string
+  is_active: boolean
+  roles: string[]
+  created_at: string
+  updated_at: string
+}
+
+export function useAdminStaff(search?: string) {
+  return useQuery({
+    queryKey: ['admin', 'staff', search ?? ''],
+    queryFn: () =>
+      guarded(async () => {
+        const qs = search ? `?search=${encodeURIComponent(search)}` : ''
+        const res = await fetch(`/api/v1/admin/staff${qs}`, { credentials: 'include' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+        }
+        return (await res.json()) as { total: number; items: StaffMember[] }
+      }),
+    retry: 1,
+  })
+}
+
+export function useAdminStaffCreate() {
+  const invalidate = useInvalidate(['admin', 'staff'])
+  return useMutation({
+    mutationFn: async (input: { name: string; email: string; password: string; roles: string[] }) => {
+      const res = await fetch('/api/v1/admin/staff', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+      }
+      return (await res.json()) as StaffMember
+    },
+    onSuccess: invalidate,
+    onError: handleAuthError,
+  })
+}
+
+export function useAdminStaffUpdate() {
+  const invalidate = useInvalidate(['admin', 'staff'])
+  return useMutation({
+    mutationFn: async (input: { id: string; name?: string; email?: string; password?: string; is_active?: boolean; roles?: string[] }) => {
+      const { id, ...body } = input
+      const res = await fetch(`/api/v1/admin/staff/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const bodyErr = await res.json().catch(() => ({}))
+        throw new ApiRequestError(res.status, (bodyErr as { message?: string }).message ?? `Ошибка ${res.status}`)
+      }
+      return (await res.json()) as StaffMember
+    },
+    onSuccess: invalidate,
+    onError: handleAuthError,
+  })
+}
+
 /* --- Админ: брендинг --- */
 
 export interface AdminBrandingInput {

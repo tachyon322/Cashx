@@ -23,6 +23,7 @@ import { IntegrationKeysPage } from './pages/admin/IntegrationKeysPage'
 import { OffersAdminPage } from './pages/admin/OffersAdminPage'
 import { PartnerDetailPage } from './pages/admin/PartnerDetailPage'
 import { PartnersPage } from './pages/admin/PartnersPage'
+import { StaffPage } from './pages/admin/StaffPage'
 import { WithdrawalsPage } from './pages/admin/WithdrawalsPage'
 import { BlockedPage, ForbiddenPage, PendingPage } from './pages/states'
 
@@ -217,6 +218,14 @@ const router = createBrowserRouter([
                 element: (
                   <RequireStaff roles={['content_manager']}>
                     <BrandingPage />
+                  </RequireStaff>
+                ),
+              },
+              {
+                path: '/admin/staff',
+                element: (
+                  <RequireStaff roles={['superadmin']}>
+                    <StaffPage />
                   </RequireStaff>
                 ),
               },

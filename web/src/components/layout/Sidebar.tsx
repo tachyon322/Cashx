@@ -43,6 +43,7 @@ const ADMIN_NAV: readonly NavItem[] = [
   { to: '/admin/finance', label: 'Финансы', icon: Coins, roles: ['finance'] },
   { to: '/admin/announcements', label: 'Анонсы', icon: Megaphone, roles: ['content_manager'] },
   { to: '/admin/branding', label: 'Брендинг', icon: Palette, roles: ['content_manager'] },
+  { to: '/admin/staff', label: 'Команда', icon: Users, roles: ['superadmin'] },
   { to: '/admin/audit', label: 'Аудит', icon: ScrollText },
 ]
 

@@ -146,6 +146,15 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 			r.Put("/admin/platform/branding", w.AdminBrandingPut)
 		})
 
+		// Admin: staff management (superadmin only).
+		r.Group(func(r chi.Router) {
+			r.Use(mw.RequireUser, mw.RequireStaff("superadmin"))
+			r.Get("/admin/staff", s.AdminStaffList)
+			r.Post("/admin/staff", s.AdminStaffCreate)
+			r.Get("/admin/staff/{id}", s.AdminStaffGet)
+			r.Patch("/admin/staff/{id}", s.AdminStaffUpdate)
+		})
+
 		// Admin: audit (all staff roles can read the trail).
 		r.Group(func(r chi.Router) {
 			r.Use(mw.RequireUser, mw.RequireStaff("project_manager", "finance", "content_manager", "support"))

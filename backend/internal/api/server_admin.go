@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"cashx/internal/api/gen"
 	"cashx/internal/admin"
 	"cashx/internal/offers"
@@ -881,6 +883,87 @@ func (s *Server) AdminWithdrawalMirror(w http.ResponseWriter, r *http.Request) {
 		_, _ = s.Pool.Exec(ctx, `UPDATE wallets SET reserved_kopecks = reserved_kopecks + $1 WHERE partner_id=$2`, body.Amount, partnerID)
 	}
 	respond(w, http.StatusCreated, map[string]string{"id": newID, "status": status})
+}
+
+// AdminStaffList handles GET /admin/staff.
+func (s *Server) AdminStaffList(w http.ResponseWriter, r *http.Request) {
+	search := r.URL.Query().Get("search")
+	limit, offset := pagination(r)
+	items, total, err := s.Admin.ListStaff(r.Context(), search, limit, offset)
+	if err != nil {
+		writeErr(s.Log, w, err)
+		return
+	}
+	respond(w, http.StatusOK, struct {
+		Total int64        `json:"total"`
+		Items []admin.StaffMember `json:"items"`
+	}{Total: total, Items: items})
+}
+
+// AdminStaffCreate handles POST /admin/staff.
+func (s *Server) AdminStaffCreate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name     string   `json:"name"`
+		Email    string   `json:"email"`
+		Password string   `json:"password"`
+		Roles    []string `json:"roles"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		writeErr(s.Log, w, err)
+		return
+	}
+	member, err := s.Admin.CreateStaff(r.Context(), actorID(r), body.Name, body.Email, body.Password, body.Roles)
+	if err != nil {
+		writeErr(s.Log, w, err)
+		return
+	}
+	respond(w, http.StatusCreated, member)
+}
+
+// AdminStaffGet handles GET /admin/staff/{id}.
+func (s *Server) AdminStaffGet(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		id = r.PathValue("id")
+	}
+	if id == "" {
+		id = r.URL.Query().Get("id")
+	}
+	if id == "" {
+		httpjson.Error(w, http.StatusBadRequest, "id_required")
+		return
+	}
+	member, err := s.Admin.GetStaff(r.Context(), id)
+	if err != nil {
+		writeErr(s.Log, w, err)
+		return
+	}
+	respond(w, http.StatusOK, member)
+}
+
+// AdminStaffUpdate handles PATCH /admin/staff/{id}.
+func (s *Server) AdminStaffUpdate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		id = r.PathValue("id")
+	}
+	var body struct {
+		Name     *string  `json:"name"`
+		Email    *string  `json:"email"`
+		Password *string  `json:"password"`
+		IsActive *bool    `json:"is_active"`
+		Roles    *[]string `json:"roles"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		writeErr(s.Log, w, err)
+		return
+	}
+	member, err := s.Admin.UpdateStaff(r.Context(), actorID(r), id, body.Name, body.Email, body.Password, body.IsActive, body.Roles)
+	if err != nil {
+		writeErr(s.Log, w, err)
+		return
+	}
+	respond(w, http.StatusOK, member)
 }
 
 // AdminTrackingLinkMirror handles POST /admin/tracking_links/mirror — best-effort, returns 200 if no CashX equivalent.
