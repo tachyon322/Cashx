@@ -170,7 +170,7 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid items-stretch gap-4 md:grid-cols-[minmax(0,1fr)_340px] lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid items-stretch gap-4">
         <AdvBanner
           title={
             <>
@@ -203,7 +203,7 @@ export function DashboardPage() {
           }
           media={<HeroNeonArt />}
         />
-        <RevShareCard revsharePercentBps={summary?.revshare_percent_bps} onDetails={() => navigate('/cabinet/offers')} />
+        {/* <RevShareCard revsharePercentBps={summary?.revshare_percent_bps} onDetails={() => navigate('/cabinet/offers')} /> */}
       </div>
 
       <div className="grid items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-4">

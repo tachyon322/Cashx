@@ -199,7 +199,7 @@ func (s *Service) Get(ctx context.Context, id string) (Card, error) {
 func (s *Service) cardFor(ctx context.Context, q *repository.Queries, id string) (Card, error) {
 	o, err := q.GetOfferWithProject(ctx, id)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) || (err != nil && err.Error() == "no rows in result set") {
 			return Card{}, fmt.Errorf("%w: offer_not_found", platform.ErrNotFound)
 		}
 		return Card{}, err

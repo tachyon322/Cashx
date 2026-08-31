@@ -550,7 +550,7 @@ func offerCardResponseFrom(c offers.Card) offerCardResponse {
 func (s *Server) offerStats(ctx context.Context, partnerID, offerID string) (offerStatsResponse, error) {
 	access, err := s.Q.GetPartnerAccess(ctx, repository.GetPartnerAccessParams{PartnerID: partnerID, OfferID: offerID})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) || (err != nil && err.Error() == "no rows in result set") {
 			return offerStatsResponse{}, fmt.Errorf("%w: offer_not_joined", platform.ErrNotFound)
 		}
 		return offerStatsResponse{}, err

@@ -421,8 +421,17 @@ func (s *Server) AdminRedirectDeleteURL(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Helper to handle GetRedirectPoolByID not found mapping
-func isNoRows(err error) bool { return err != nil && err.Error() == "no rows" || err == pgx.ErrNoRows }
+// Helper to handle no rows mapping (pgx/sqlc may return pgx.ErrNoRows or plain string).
+func isNoRows(err error) bool {
+	if err == nil {
+		return false
+	}
+	if err == pgx.ErrNoRows {
+		return true
+	}
+	s := err.Error()
+	return s == "no rows in result set" || s == "no rows" || (len(s) >= 7 && s[:7] == "no rows")
+}
 
 // decodeBody helper already exists in other server files; ensure import
 var _ = time.Now
