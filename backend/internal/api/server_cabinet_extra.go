@@ -59,6 +59,9 @@ func (s *Server) CabinetB2CReferrals(w http.ResponseWriter, r *http.Request) {
 		writeErr(s.Log, w, err)
 		return
 	}
+	if items == nil {
+		items = []partners.B2CReferralItem{}
+	}
 	// Filter by search if provided
 	if search != "" {
 		low := strings.ToLower(search)
@@ -99,6 +102,9 @@ func (s *Server) CabinetB2CReferrals(w http.ResponseWriter, r *http.Request) {
 		end = len(items)
 	}
 	paged := items[offset:end]
+	if paged == nil {
+		paged = []partners.B2CReferralItem{}
+	}
 	respond(w, http.StatusOK, map[string]interface{}{
 		"total": total,
 		"sum":   sum,
@@ -171,7 +177,7 @@ func (s *Server) CabinetTransactions(w http.ResponseWriter, r *http.Request) {
 		AmountKopecks int64  `json:"amount_kopecks"`
 		CreatedAt     string `json:"created_at"`
 	}
-	var items []tx
+	items := []tx{}
 	for _, e := range ledger {
 		items = append(items, tx{
 			ID: strconv.FormatInt(e.ID, 10), Type: e.Type, AmountKopecks: e.AmountKopecks,

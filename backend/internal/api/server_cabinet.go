@@ -215,7 +215,9 @@ func (s *Server) CabinetPayoutsList(w http.ResponseWriter, r *http.Request) {
 		Requests []withdrawalResponse  `json:"requests"`
 		History  []ledgerEntryResponse `json:"history"`
 	}{
-		Balance: balance{AvailableKopecks: wallet.AvailableKopecks, ReservedKopecks: wallet.ReservedKopecks},
+		Balance:  balance{AvailableKopecks: wallet.AvailableKopecks, ReservedKopecks: wallet.ReservedKopecks},
+		Requests: []withdrawalResponse{},
+		History:  []ledgerEntryResponse{},
 	}
 	for _, req := range requests {
 		resp.Requests = append(resp.Requests, withdrawalResponseFrom(req))

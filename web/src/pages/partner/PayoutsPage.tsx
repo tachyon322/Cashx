@@ -66,6 +66,23 @@ export function PayoutsPage() {
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
+  const rules = configQuery.data
+  const minKopecks = rules?.min_withdraw_kopecks ?? 500000
+
+  const feePreview = useMemo(() => {
+    const raw = amount.trim().replace(',', '.')
+    const rub = Number.parseFloat(raw)
+    const k = Number.isFinite(rub) ? Math.round(rub * 100) : 0
+    if (k <= 0 || !rules) return null
+    if (method === 'sbp') {
+      const flat = rules.sbp_fee_flat_kopecks ?? 0
+      const pct = rules.sbp_fee_percent_bps ?? 0
+      const fee = flat + Math.round((k * pct) / 10000)
+      return fee
+    }
+    return 0
+  }, [amount, method, rules])
+
   if (payoutsQuery.isLoading || configQuery.isLoading) return <PayoutsSkeleton />
   if (payoutsQuery.error || configQuery.error)
     return <EmptyState title="Не удалось загрузить данные" hint="Попробуйте обновить страницу через несколько секунд" />
@@ -75,8 +92,6 @@ export function PayoutsPage() {
   const balance = payoutsQuery.data?.balance
   const requests = payoutsQuery.data?.requests ?? []
   const history = payoutsQuery.data?.history ?? []
-  const rules = configQuery.data
-  const minKopecks = rules?.min_withdraw_kopecks ?? 500000
 
   // derived stats for top cards
   const available = balance?.available_kopecks ?? 0
@@ -242,20 +257,6 @@ export function PayoutsPage() {
     { key: 'balance', header: 'Баланс после', align: 'right', render: (row) => formatRubles(row.balance_after_kopecks ?? 0) },
     { key: 'created', header: 'Дата', render: (row) => (row.created_at ? formatDateTime(row.created_at) : '—') },
   ]
-
-  const feePreview = useMemo(() => {
-    const raw = amount.trim().replace(',', '.')
-    const rub = Number.parseFloat(raw)
-    const k = Number.isFinite(rub) ? Math.round(rub * 100) : 0
-    if (k <= 0 || !rules) return null
-    if (method === 'sbp') {
-      const flat = rules.sbp_fee_flat_kopecks ?? 0
-      const pct = rules.sbp_fee_percent_bps ?? 0
-      const fee = flat + Math.round((k * pct) / 10000)
-      return fee
-    }
-    return 0
-  }, [amount, method, rules])
 
   return (
     <div className="flex flex-col gap-4">
