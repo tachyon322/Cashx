@@ -1029,18 +1029,20 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 			}
 			extPaymentID := "kazik-" + tr.ID
 			extEventID := "kazik-commission-" + tr.ID
-			// Try insert conversion; if exists, get id
-			err = cashx.QueryRow(ctx, `INSERT INTO conversion_events (project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,'RUB',$7) RETURNING id`, projectID, extEventID, extPaymentID, ptrOr(tr.RefUserID, "unknown"), *attributionID, conversionAmount, tr.CreatedAt).Scan(&convID)
-			if err != nil {
-				// maybe duplicate external_payment_id
-				_ = cashx.QueryRow(ctx, `SELECT id FROM conversion_events WHERE project_id=$1 AND external_payment_id=$2`, projectID, extPaymentID).Scan(&convID)
-				if convID == 0 {
-					_ = cashx.QueryRow(ctx, `SELECT id FROM conversion_events WHERE project_id=$1 AND external_event_id=$2`, projectID, extEventID).Scan(&convID)
-				}
-				if convID == 0 {
-					report.Transactions.Failed++
-					report.Errors = append(report.Errors, fmt.Sprintf("tx %s conv insert: %v", tr.ID, err))
-					continue
+			// Idempotent: check existing first (partitioned table has no unique constraint on external_event_id)
+			_ = cashx.QueryRow(ctx, `SELECT id FROM conversion_events WHERE project_id=$1 AND external_event_id=$2 LIMIT 1`, projectID, extEventID).Scan(&convID)
+			if convID == 0 {
+				_ = cashx.QueryRow(ctx, `SELECT id FROM conversion_events WHERE project_id=$1 AND external_payment_id=$2 LIMIT 1`, projectID, extPaymentID).Scan(&convID)
+			}
+			if convID == 0 {
+				err = cashx.QueryRow(ctx, `INSERT INTO conversion_events (project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,'RUB',$7) RETURNING id`, projectID, extEventID, extPaymentID, ptrOr(tr.RefUserID, "unknown"), *attributionID, conversionAmount, tr.CreatedAt).Scan(&convID)
+				if err != nil {
+					_ = cashx.QueryRow(ctx, `SELECT id FROM conversion_events WHERE project_id=$1 AND external_event_id=$2 LIMIT 1`, projectID, extEventID).Scan(&convID)
+					if convID == 0 {
+						report.Transactions.Failed++
+						report.Errors = append(report.Errors, fmt.Sprintf("tx %s conv insert: %v", tr.ID, err))
+						continue
+					}
 				}
 			}
 			// commission_earnings
