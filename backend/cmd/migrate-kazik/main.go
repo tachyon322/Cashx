@@ -1015,11 +1015,11 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 			}
 			// Create conversion_events if not exists
 			var convID int64
-			amountKopecks := int64(tr.Amount)
+			amountKopecks := int64(tr.Amount) * 100 // kazik stores rubles, cashx expects kopecks
 			// If depositAmount present, use depositAmount for conversion, but commission amount is tr.Amount
 			conversionAmount := amountKopecks
 			if tr.DepositAmount != nil && *tr.DepositAmount > 0 {
-				conversionAmount = int64(*tr.DepositAmount)
+				conversionAmount = int64(*tr.DepositAmount) * 100
 				// Some kazik rows have depositAmount in kop? Already.
 			} else if tr.CommissionPercent != nil && *tr.CommissionPercent > 0 {
 				// derive deposit from commission: amount = deposit * percent /100 => deposit = amount*100/percent
