@@ -36,7 +36,7 @@ const CABINET_NAV: readonly NavItem[] = [
   { to: '/cabinet/b2c-referrals', label: 'Игроки', icon: Gamepad2 },
   { to: '/cabinet/referrals', label: 'Рефералы', icon: Users },
   { to: '/cabinet/payouts', label: 'Выплаты', icon: Wallet },
-  { to: '/cabinet/leaderboard', label: 'Лидерборд', icon: Crown },
+  // { to: '/cabinet/leaderboard', label: 'Лидерборд', icon: Crown },
   { to: '/cabinet/settings', label: 'Настройки', icon: Settings2 },
   { to: '/cabinet/profile', label: 'Профиль', icon: CircleUserRound },
 ]
