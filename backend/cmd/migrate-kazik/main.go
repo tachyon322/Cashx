@@ -253,7 +253,7 @@ func migratePartners(ctx context.Context, kazik, cashx *pgxpool.Pool, report *Re
 						bps = 10000
 					}
 					cashx.Exec(ctx, `UPDATE partner_profiles SET revshare_percent_bps=$1, is_approved=$2, is_blocked=$3 WHERE id=$4`, bps, p.IsActive, !p.IsActive, ppID)
-					cashx.Exec(ctx, `UPDATE wallets SET legacy_kazik_balance=$1, available_kopecks=$2 WHERE partner_id=$3`, p.Balance, p.Balance, ppID)
+					cashx.Exec(ctx, `UPDATE wallets SET legacy_kazik_balance=$1, available_kopecks=$2 WHERE partner_id=$3`, p.Balance*100, p.Balance*100, ppID)
 				}
 				partnerMap[p.ID] = ppID
 				partnerUserMap[p.ID] = emailExists
@@ -310,7 +310,7 @@ func migratePartners(ctx context.Context, kazik, cashx *pgxpool.Pool, report *Re
 			continue
 		}
 		// wallets
-		_, err = tx.Exec(ctx, `INSERT INTO wallets (id, partner_id, available_kopecks, reserved_kopecks, legacy_kazik_balance, created_at, updated_at) VALUES (gen_random_uuid(), $1, $2, 0, $3, now(), now())`, profileID, p.Balance, p.Balance)
+		_, err = tx.Exec(ctx, `INSERT INTO wallets (id, partner_id, available_kopecks, reserved_kopecks, legacy_kazik_balance, created_at, updated_at) VALUES (gen_random_uuid(), $1, $2, 0, $3, now(), now())`, profileID, p.Balance*100, p.Balance*100)
 		if err != nil {
 			tx.Rollback(ctx)
 			report.Partners.Failed++
@@ -1148,7 +1148,7 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 		var usdt *float64 = ww.UsdtAmount
 		// Insert withdrawal_requests
 		_, err = cashx.Exec(ctx, `INSERT INTO withdrawal_requests (id, partner_id, amount_kopecks, method, requisites, bank, fee_kopecks, usdt_amount, rate, status, comment, decided_at, legacy_kazik_withdrawal_id, created_at, updated_at) VALUES (gen_random_uuid(), $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-			cashxPID, ww.Amount, method, ww.Requisites, ww.Bank, ww.Fee, usdt, rate, status, ww.Comment, ww.DecidedAt, ww.ID, ww.CreatedAt, ww.UpdatedAt)
+			cashxPID, ww.Amount*100, method, ww.Requisites, ww.Bank, ww.Fee*100, usdt, rate, status, ww.Comment, ww.DecidedAt, ww.ID, ww.CreatedAt, ww.UpdatedAt)
 		if err != nil {
 			report.Withdrawals.Failed++
 			report.Errors = append(report.Errors, fmt.Sprintf("withdrawal %s: %v", ww.ID, err))
@@ -1161,11 +1161,11 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 		_ = cashx.QueryRow(ctx, `SELECT available_kopecks FROM wallets WHERE id=$1`, wid).Scan(&bal)
 		// For pending withdrawal, available should have been decremented at request time (kazik did balance - amount). Our wallet available already reflects current balance (which includes pending deductions? Actually kazik balance reflects available after pending withdrawals deducted). So we shouldn't double deduct. Just ledger.
 		ledgerType := "withdrawal"
-		ledgerAmount := int64(-ww.Amount)
+		ledgerAmount := int64(-ww.Amount * 100)
 		if ww.Status == "rejected" {
 			// In kazik, rejected refunds balance. So ledger should have withdrawal then refund? We'll add both if needed, but simply add refund entry
 			ledgerType = "withdrawal_refund"
-			ledgerAmount = int64(ww.Amount)
+			ledgerAmount = int64(ww.Amount * 100)
 		}
 		var wid2 string
 		_ = cashx.QueryRow(ctx, `SELECT id FROM withdrawal_requests WHERE legacy_kazik_withdrawal_id=$1`, ww.ID).Scan(&wid2)
@@ -1175,14 +1175,14 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 		}
 		newBal2 := bal
 		if ledgerType == "withdrawal" {
-			newBal2 = bal - int64(ww.Amount) // but bal already deducted? This would double deduct. Instead keep bal as is and ledger reflects.
+			newBal2 = bal - int64(ww.Amount*100) // but bal already deducted? This would double deduct. Instead keep bal as is and ledger reflects.
 			// To keep consistent with wallet, we should NOT update wallet balance again; just insert ledger with current wallet balance as balance_after
 			newBal2 = bal
 		}
 		_, _ = cashx.Exec(ctx, `INSERT INTO wallet_ledger_entries (wallet_id, type, amount_kopecks, balance_after_kopecks, ref_withdrawal_id, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, wid, ledgerType, ledgerAmount, newBal2, refWid, ww.CreatedAt)
 		// For pending, also update reserved?
 		if ww.Status == "pending" {
-			_, _ = cashx.Exec(ctx, `UPDATE wallets SET reserved_kopecks = reserved_kopecks + $1, available_kopecks = available_kopecks - $1 WHERE id=$2`, ww.Amount, wid)
+			_, _ = cashx.Exec(ctx, `UPDATE wallets SET reserved_kopecks = reserved_kopecks + $1, available_kopecks = available_kopecks - $1 WHERE id=$2`, ww.Amount*100, wid)
 		}
 		report.Withdrawals.Inserted++
 	}
