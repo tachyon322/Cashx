@@ -1070,7 +1070,15 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 				// try fetch existing
 				_ = cashx.QueryRow(ctx, `SELECT id FROM commission_earnings WHERE conversion_event_id=$1`, convID).Scan(&earningID)
 			}
-			// wallet ledger
+			// Idempotency: an empty earningID means the earning already exists from
+			// a previous run — its wallet credit and ledger entry were written then.
+			// A re-run must never credit the wallet or append a duplicate ledger
+			// entry for it (this exact double-credit inflated balances on prod).
+			if earningID == "" {
+				report.Transactions.Skipped++
+				continue
+			}
+			// wallet ledger — only for a genuinely new earning
 			var balanceAfter int64
 			_ = cashx.QueryRow(ctx, `SELECT available_kopecks FROM wallets WHERE id=$1`, wid).Scan(&balanceAfter)
 			newBal := balanceAfter + amountKopecks
@@ -1163,16 +1171,17 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 			report.Errors = append(report.Errors, fmt.Sprintf("withdrawal %s: %v", ww.ID, err))
 			continue
 		}
-		// Adjust wallet reserved? In cashx, withdrawal pending reserves funds? Check logic: wallet reserved is used. But our migration sets available already via partner balance; withdrawals should have moved to reserved or ledger. For simplicity, ledger entries:
-		// For pending approved, commission already accounted, withdrawal should debit ledger and adjust reserved.
-		// We'll add ledger entry.
+		// Wallet effect: this ETL builds available purely from commissions, so a
+		// withdrawal that left the partner's kazik balance must be reflected here
+		// as well. kazik 'approved' = money was paid out -> deduct available.
+		// kazik 'pending' = held for decision -> move to reserved.
+		// kazik 'rejected' = refunded -> no wallet change (ledger refund only).
 		var bal int64
 		_ = cashx.QueryRow(ctx, `SELECT available_kopecks FROM wallets WHERE id=$1`, wid).Scan(&bal)
-		// For pending withdrawal, available should have been decremented at request time (kazik did balance - amount). Our wallet available already reflects current balance (which includes pending deductions? Actually kazik balance reflects available after pending withdrawals deducted). So we shouldn't double deduct. Just ledger.
 		ledgerType := "withdrawal"
 		ledgerAmount := int64(-ww.Amount * 100)
 		if ww.Status == "rejected" {
-			// In kazik, rejected refunds balance. So ledger should have withdrawal then refund? We'll add both if needed, but simply add refund entry
+			// In kazik, rejected refunds balance — record it as a refund entry.
 			ledgerType = "withdrawal_refund"
 			ledgerAmount = int64(ww.Amount * 100)
 		}
@@ -1183,16 +1192,14 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 			refWid = nil
 		}
 		newBal2 := bal
-		if ledgerType == "withdrawal" {
-			newBal2 = bal - int64(ww.Amount*100) // but bal already deducted? This would double deduct. Instead keep bal as is and ledger reflects.
-			// To keep consistent with wallet, we should NOT update wallet balance again; just insert ledger with current wallet balance as balance_after
-			newBal2 = bal
+		if ww.Status == "approved" {
+			newBal2 = bal - int64(ww.Amount*100)
+			_, _ = cashx.Exec(ctx, `UPDATE wallets SET available_kopecks=$1, updated_at=now() WHERE id=$2`, newBal2, wid)
+		} else if ww.Status == "pending" {
+			newBal2 = bal - int64(ww.Amount*100)
+			_, _ = cashx.Exec(ctx, `UPDATE wallets SET reserved_kopecks = reserved_kopecks + $1, available_kopecks = $2, updated_at=now() WHERE id=$3`, ww.Amount*100, newBal2, wid)
 		}
 		_, _ = cashx.Exec(ctx, `INSERT INTO wallet_ledger_entries (wallet_id, type, amount_kopecks, balance_after_kopecks, ref_withdrawal_id, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, wid, ledgerType, ledgerAmount, newBal2, refWid, ww.CreatedAt)
-		// For pending, also update reserved?
-		if ww.Status == "pending" {
-			_, _ = cashx.Exec(ctx, `UPDATE wallets SET reserved_kopecks = reserved_kopecks + $1, available_kopecks = available_kopecks - $1 WHERE id=$2`, ww.Amount*100, wid)
-		}
 		report.Withdrawals.Inserted++
 	}
 	return nil

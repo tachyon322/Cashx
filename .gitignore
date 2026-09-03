@@ -1,6 +1,10 @@
 # Environment (локальные секреты; шаблон — backend/.env.example)
 backend/.env
 
+# ETL build artifacts (never commit binaries)
+backend/migrate-kazik
+backend/backfill-stats
+
 # Frontend (web/)
 web/node_modules/
 web/dist/
