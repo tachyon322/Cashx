@@ -575,6 +575,9 @@ func (s *Server) offerStats(ctx context.Context, partnerID, offerID string) (off
 		return offerStatsResponse{}, err
 	}
 	resp := offerStatsResponse{Offer: offerCardResponseFrom(card)}
+	// Ставка — персональная (из доступа партнёра), а не дефолтная из условий
+	// оффера: RevShare у партнёра единый и проставляется в доступ при Join.
+	resp.Offer.CurrentRateBps = int(access.RateBps)
 
 	// Personal tracking link (default source), always available for a joined offer.
 	if link, err := s.Q.GetDefaultTrackingLinkByAccessID(ctx, access.ID); err == nil {

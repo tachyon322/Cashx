@@ -2,26 +2,22 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Link2, Play, TrendingUp, Search, Filter, BarChart3, Copy, Pencil } from 'lucide-react'
 import { CalendarDays, Boxes, Layers3 } from 'lucide-react'
-import { useAllSources, useOffers, useSummary } from '../../api/queries'
+import { useAllSources, useOffers, useRecentActivity, useSummary } from '../../api/queries'
 import { AdvBanner, HeroNeonArt } from '../../components/AdvBanner'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { EmptyState } from '../../components/EmptyState'
+import { RecentActivityCard } from '../../components/RecentActivityCard'
 import { Select } from '../../components/Select'
 import { StatsBanner } from '../../components/StatsBanner'
 import { TopSourcesCard } from '../../components/TopSourcesCard'
 import type { TopSourceItem } from '../../components/TopSourcesCard'
 import { MultiLineChart } from '../../components/charts/MultiLineChart'
 import type { MultiLineSeries } from '../../components/charts/MultiLineChart'
-import { SymmetricFunnel } from '../../components/charts/SymmetricFunnel'
-import type { SymmetricFunnelItem } from '../../components/charts/SymmetricFunnel'
 import { useToast } from '../../components/Toast'
 import { formatNumber, formatRubles } from '../../lib/format'
 import { buildIncomeChart, buildPeriodStats, INCOME_PERIODS } from '../../lib/stats'
 import type { IncomePeriod } from '../../lib/stats'
-import type { components } from '../../api/schema'
-
-type SummaryResponse = components['schemas']['SummaryResponse']
 
 const INCOME_SERIES: readonly MultiLineSeries[] = [
   { label: 'Доход', color: 'var(--cx-violet-bright)' },
@@ -31,46 +27,6 @@ const INCOME_SERIES: readonly MultiLineSeries[] = [
 
 function formatIncomeValue(value: number, seriesIndex: number): string {
   return seriesIndex === 0 ? formatRubles(value) : formatNumber(value)
-}
-
-const FUNNEL_COLORS = {
-  clicks: 'var(--cx-violet-bright)',
-  registrations: 'var(--cx-blue)',
-  deposits: 'var(--cx-success)',
-  income: 'var(--cx-magenta)',
-} as const
-
-function conversionRate(part: number, whole: number): string | null {
-  if (whole <= 0) return null
-  return `${((part / whole) * 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 })}%`
-}
-
-function buildFunnelItems(summary: SummaryResponse): SymmetricFunnelItem[] {
-  const f = summary.funnel ?? {}
-  const clicks = f.clicks ?? 0
-  const registrations = f.registrations ?? 0
-  const deposits = f.first_payments ?? 0
-  const income = f.income_kopecks ?? 0
-  const regRate = conversionRate(registrations, clicks)
-  const depRate = conversionRate(deposits, registrations)
-  return [
-    { label: 'Переходы', value: clicks, color: FUNNEL_COLORS.clicks, formatValue: formatNumber },
-    {
-      label: 'Регистрации',
-      value: registrations,
-      color: FUNNEL_COLORS.registrations,
-      formatValue: formatNumber,
-      hint: regRate != null ? `${regRate} от переходов` : undefined,
-    },
-    {
-      label: 'Депозиты',
-      value: deposits,
-      color: FUNNEL_COLORS.deposits,
-      formatValue: formatNumber,
-      hint: depRate != null ? `${depRate} от регистраций` : undefined,
-    },
-    { label: 'Доход', value: income, color: FUNNEL_COLORS.income, formatValue: formatRubles },
-  ]
 }
 
 const STATS_ICONS: Record<string, React.ReactNode> = {
@@ -110,11 +66,11 @@ export function DashboardPage() {
   const { data: summary } = useSummary()
   const { data: offersData } = useOffers()
   const { data: allSources, isLoading: sourcesLoading, isError: sourcesError } = useAllSources()
+  const { data: activityData, isLoading: activityLoading } = useRecentActivity(50)
   const [period, setPeriod] = useState<IncomePeriod>('day')
   const [trafficSearch, setTrafficSearch] = useState('')
 
   const chartData = useMemo(() => (summary ? buildIncomeChart(summary.chart ?? [], period) : []), [summary, period])
-  const funnelItems = useMemo(() => (summary ? buildFunnelItems(summary) : []), [summary])
   const periodStats = useMemo(() => (summary ? buildPeriodStats(summary) : []), [summary])
 
   const hasOffers = (offersData?.items?.length ?? 0) > 0
@@ -261,13 +217,7 @@ export function DashboardPage() {
               <MultiLineChart data={chartData} series={INCOME_SERIES} formatValue={formatIncomeValue} />
             </Card>
 
-            <Card
-              neon
-              title={<span className="text-[12px] font-bold uppercase tracking-[0.08em]">Воронка конверсии</span>}
-              className="overflow-hidden"
-            >
-              <SymmetricFunnel items={funnelItems} />
-            </Card>
+            <RecentActivityCard items={activityData?.items} isLoading={activityLoading} />
 
             <TopSourcesCard items={topSources} isLoading={topSourcesLoading} onViewAll={() => navigate('/cabinet/offers')} />
           </>

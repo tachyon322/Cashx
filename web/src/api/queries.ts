@@ -391,6 +391,36 @@ export function useNotifications() {
   })
 }
 
+export type ActivityKind = 'click' | 'registration' | 'payment' | 'earning' | 'reversal'
+
+export interface ActivityItem {
+  id: string
+  kind: ActivityKind
+  source_name: string
+  offer_name: string
+  amount_kopecks?: number | null
+  occurred_at: string
+}
+
+/** Последние действия пользователей партнёра (лента вместо воронки). */
+export function useRecentActivity(limit = 50, offerId?: string) {
+  return useQuery({
+    queryKey: ['recent-activity', limit, offerId ?? ''],
+    queryFn: () =>
+      guarded(async () => {
+        const qs = new URLSearchParams({ limit: String(limit) })
+        if (offerId) qs.set('offer_id', offerId)
+        const res = await fetch(`/api/v1/cabinet/activity?${qs.toString()}`, { credentials: 'include' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+        }
+        return (await res.json()) as { items: ActivityItem[] }
+      }),
+    retry: 1,
+  })
+}
+
 export function useAdminPartners(params: AdminPartnersParams = {}) {
   return useQuery({
     queryKey: ['admin', 'partners', params],

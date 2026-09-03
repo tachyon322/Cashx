@@ -59,6 +59,7 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(mw.RequireUser, mw.RequirePartner)
 			r.Get("/cabinet/summary", w.CabinetSummary)
+		r.Get("/cabinet/activity", s.CabinetActivity)
 			r.Get("/cabinet/offers", w.CabinetOffersList)
 			r.Post("/cabinet/offers/{offerId}/join", w.CabinetOfferJoin)
 			r.Get("/cabinet/offers/{offerId}", w.CabinetOfferStats)

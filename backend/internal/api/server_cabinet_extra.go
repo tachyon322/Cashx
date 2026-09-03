@@ -260,6 +260,43 @@ func (s *Server) CabinetAttrib(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, map[string]interface{}{"attributed": ok})
 }
 
+// CabinetActivity handles GET /cabinet/activity?limit= — merged recent
+// activity feed (clicks, registrations, payments, earnings) for the dashboard.
+func (s *Server) CabinetActivity(w http.ResponseWriter, r *http.Request) {
+	partnerID := partnerIDFrom(r)
+	if partnerID == "" {
+		respond(w, http.StatusUnauthorized, errBody("unauthorized"))
+		return
+	}
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 && v <= 200 {
+			limit = v
+		}
+	}
+	offerID := strings.TrimSpace(r.URL.Query().Get("offer_id"))
+	var items []partners.ActivityItem
+	if offerID != "" {
+		var err error
+		items, err = s.Partners.GetOfferActivity(r.Context(), partnerID, offerID, limit)
+		if err != nil {
+			writeErr(s.Log, w, err)
+			return
+		}
+	} else {
+		var err error
+		items, err = s.Partners.GetRecentActivity(r.Context(), partnerID, limit)
+		if err != nil {
+			writeErr(s.Log, w, err)
+			return
+		}
+	}
+	if items == nil {
+		items = []partners.ActivityItem{}
+	}
+	respond(w, http.StatusOK, map[string]interface{}{"items": items})
+}
+
 // AdminDomains handlers
 func (s *Server) AdminDomainsList(w http.ResponseWriter, r *http.Request) {
 	items, err := s.Offers.ListDomains(r.Context())
