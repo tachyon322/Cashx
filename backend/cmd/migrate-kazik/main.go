@@ -1065,7 +1065,7 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 				bps = rb
 			}
 			var earningID string
-			err = cashx.QueryRow(ctx, `INSERT INTO commission_earnings (id, conversion_event_id, partner_id, offer_id, rate_bps, amount_kopecks, external_user_id, tracking_link_id) VALUES (gen_random_uuid(), $1,$2,$3,$4,$5,$6,$7) ON CONFLICT (conversion_event_id) DO NOTHING RETURNING id`, convID, cashxPID, offerID, bps, amountKopecks, ptrOr(tr.RefUserID, "unknown"), trackingLinkID).Scan(&earningID)
+			err = cashx.QueryRow(ctx, `INSERT INTO commission_earnings (id, conversion_event_id, partner_id, offer_id, rate_bps, amount_kopecks, external_user_id, tracking_link_id, created_at) VALUES (gen_random_uuid(), $1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (conversion_event_id) DO NOTHING RETURNING id`, convID, cashxPID, offerID, bps, amountKopecks, ptrOr(tr.RefUserID, "unknown"), trackingLinkID, tr.CreatedAt).Scan(&earningID)
 			if err != nil && err != pgx.ErrNoRows {
 				// try fetch existing
 				_ = cashx.QueryRow(ctx, `SELECT id FROM commission_earnings WHERE conversion_event_id=$1`, convID).Scan(&earningID)
