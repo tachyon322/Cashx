@@ -1,3 +1,4 @@
+// Package integrations implements the HMAC-signed project event API.
 package integrations
 
 import (
@@ -5,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -24,6 +26,20 @@ const (
 type Middleware struct {
 	Q      *repository.Queries
 	Offers *offers.Service
+	Log    *slog.Logger
+}
+
+// logf is a nil-safe logger helper (Log is optional for tests).
+func (m *Middleware) logf(level slog.Level, msg string, args ...any) {
+	if m.Log == nil {
+		return
+	}
+	switch level {
+	case slog.LevelError:
+		m.Log.Error(msg, args...)
+	default:
+		m.Log.Warn(msg, args...)
+	}
 }
 
 // Verify wraps a handler with HMAC authentication for X-CashX-* headers.
@@ -42,6 +58,8 @@ func (m *Middleware) Verify(next http.Handler) http.Handler {
 				httpjson.Error(w, http.StatusUnauthorized, "invalid_key")
 				return
 			}
+			// DB errors here used to be silent 500s; log the cause.
+			m.logf(slog.LevelError, "integration key lookup failed", "err", err, "key_id", keyID)
 			httpjson.Error(w, http.StatusInternalServerError, "internal error")
 			return
 		}
@@ -51,6 +69,12 @@ func (m *Middleware) Verify(next http.Handler) http.Handler {
 		}
 		secret, err := m.Offers.DecryptSecret(key.SecretCiphertext)
 		if err != nil {
+			// Almost always means the stored ciphertext was encrypted with a
+			// different CASHX_INTEGRATION_KEY_ENCRYPTION_KEY than the one this
+			// process has (e.g. the key predates an env change). The fix is to
+			// rotate the integration key; until then every event gets a 500.
+			m.logf(slog.LevelError, "integration secret decrypt failed — likely CASHX_INTEGRATION_KEY_ENCRYPTION_KEY mismatch, rotate the key",
+				"err", err, "key_id", keyID)
 			httpjson.Error(w, http.StatusInternalServerError, "internal error")
 			return
 		}

@@ -45,7 +45,37 @@ func (r *Runner) Run(ctx context.Context) {
 	go r.countersLoop(ctx)
 	go r.syncPayoutLoop(ctx)
 	go r.reconcileLoop(ctx)
+	go r.partitionsLoop(ctx)
 	r.statsLoop(ctx)
+}
+
+// partitionsLoop keeps monthly partitions of tracking_clicks /
+// incoming_events / conversion_events ahead of time: 36 months back (covers
+// replays/backdated imports) and 2 months ahead. A BEFORE STATEMENT trigger
+// (see migrations/00021_partition_security.sql) additionally guards the
+// months around now on every INSERT, so a month rollover can never fail
+// live ingestion again.
+func (r *Runner) partitionsLoop(ctx context.Context) {
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	if err := r.ensurePartitions(ctx); err != nil {
+		r.Log.Error("ensure partitions", "err", err)
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := r.ensurePartitions(ctx); err != nil {
+				r.Log.Error("ensure partitions", "err", err)
+			}
+		}
+	}
+}
+
+func (r *Runner) ensurePartitions(ctx context.Context) error {
+	_, err := r.Pool.Exec(ctx, "SELECT ensure_partitions_range(36, 2)")
+	return err
 }
 
 // outboxLoop delivers pending outbox messages every 15s.
@@ -108,145 +138,14 @@ func (r *Runner) statsLoop(ctx context.Context) {
 	}
 }
 
-// recomputeStats rewrites daily_partner_offer_stats for the current and
-// previous two MSK days.
+// recomputeStats rewrites daily stats for the current and previous two MSK
+// days (the shared implementation lives in tracking.RecomputeDailyStats and
+// is also used by cmd/backfill-stats for whole-history runs).
 func (r *Runner) recomputeStats(ctx context.Context) error {
 	now := time.Now()
 	from := tracking.StartOfMSKDay(now).AddDate(0, 0, -2)
 	to := tracking.StartOfMSKDay(now).AddDate(0, 0, 1) // exclusive
-
-	return repository.WithTx(ctx, r.Pool, func(q *repository.Queries) error {
-		if err := q.DeleteDailyStatsFrom(ctx, repository.DatePtr(from)); err != nil {
-			return err
-		}
-		clicks, err := q.AggClicksByDay(ctx, repository.AggClicksByDayParams{CreatedAt: repository.TimePtr(&from), CreatedAt_2: repository.TimePtr(&to)})
-		if err != nil {
-			return err
-		}
-		uniqueClicks, err := q.AggUniqueClicksByDay(ctx, repository.AggUniqueClicksByDayParams{CreatedAt: repository.TimePtr(&from), CreatedAt_2: repository.TimePtr(&to)})
-		if err != nil {
-			return err
-		}
-		regs, err := q.AggRegistrationsByDay(ctx, repository.AggRegistrationsByDayParams{FirstSeenAt: repository.TimePtr(&from), FirstSeenAt_2: repository.TimePtr(&to)})
-		if err != nil {
-			return err
-		}
-		firsts, err := q.AggFirstPaymentsByDay(ctx, repository.AggFirstPaymentsByDayParams{OccurredAt: repository.TimePtr(&from), OccurredAt_2: repository.TimePtr(&to)})
-		if err != nil {
-			return err
-		}
-		income, err := q.AggIncomeByDay(ctx, repository.AggIncomeByDayParams{CreatedAt: repository.TimePtr(&from), CreatedAt_2: repository.TimePtr(&to)})
-		if err != nil {
-			return err
-		}
-		type key struct {
-			partner, offer string
-			day            time.Time
-		}
-		merged := make(map[key]*repository.UpsertDailyStatsParams)
-		add := func(partner, offer string, day time.Time) *repository.UpsertDailyStatsParams {
-			k := key{partner, offer, day}
-			if e, ok := merged[k]; ok {
-				return e
-			}
-			e := &repository.UpsertDailyStatsParams{PartnerID: partner, OfferID: offer, Day: repository.DatePtr(day)}
-			merged[k] = e
-			return e
-		}
-		for _, c := range clicks {
-			add(c.PartnerID, c.OfferID, c.Day.Time).Clicks = int32(c.Clicks)
-		}
-		for _, uc := range uniqueClicks {
-			add(uc.PartnerID, uc.OfferID, uc.Day.Time).UniqueClicks = int32(uc.UniqueClicks)
-		}
-		for _, rg := range regs {
-			add(*repository.UUIDToPtr(rg.PartnerID), *repository.UUIDToPtr(rg.OfferID), rg.Day.Time).Registrations = int32(rg.Registrations)
-		}
-		for _, f := range firsts {
-			add(*repository.UUIDToPtr(f.PartnerID), *repository.UUIDToPtr(f.OfferID), f.Day.Time).FirstPayments = int32(f.FirstPayments)
-		}
-		for _, inc := range income {
-			add(inc.PartnerID, inc.OfferID, inc.Day.Time).IncomeKopecks = inc.IncomeKopecks
-		}
-		for _, p := range merged {
-			if _, err := q.UpsertDailyStats(ctx, *p); err != nil {
-				return err
-			}
-		}
-
-		// Per-source (tracking link) stats for the same window.
-		if err := q.DeleteDailyLinkStatsFrom(ctx, repository.DatePtr(from)); err != nil {
-			return err
-		}
-		linkClicks, err := q.AggClicksByLink(ctx, repository.AggClicksByLinkParams{
-			CreatedAt: repository.TimePtr(&from), CreatedAt_2: repository.TimePtr(&to),
-		})
-		if err != nil {
-			return err
-		}
-		linkUnique, err := q.AggUniqueClicksByLink(ctx, repository.AggUniqueClicksByLinkParams{
-			CreatedAt: repository.TimePtr(&from), CreatedAt_2: repository.TimePtr(&to),
-		})
-		if err != nil {
-			return err
-		}
-		linkRegs, err := q.AggRegistrationsByLink(ctx, repository.AggRegistrationsByLinkParams{
-			FirstSeenAt: repository.TimePtr(&from), FirstSeenAt_2: repository.TimePtr(&to),
-		})
-		if err != nil {
-			return err
-		}
-		linkFirsts, err := q.AggFirstPaymentsByLink(ctx, repository.AggFirstPaymentsByLinkParams{
-			OccurredAt: repository.TimePtr(&from), OccurredAt_2: repository.TimePtr(&to),
-		})
-		if err != nil {
-			return err
-		}
-		linkIncome, err := q.AggIncomeByLink(ctx, repository.AggIncomeByLinkParams{
-			CreatedAt: repository.TimePtr(&from), CreatedAt_2: repository.TimePtr(&to),
-		})
-		if err != nil {
-			return err
-		}
-		type linkKey struct {
-			link string
-			day  time.Time
-		}
-		linkMerged := make(map[linkKey]*repository.UpsertDailyLinkStatsParams)
-		addLink := func(link string, day time.Time) *repository.UpsertDailyLinkStatsParams {
-			k := linkKey{link, day}
-			if e, ok := linkMerged[k]; ok {
-				return e
-			}
-			e := &repository.UpsertDailyLinkStatsParams{TrackingLinkID: link, Day: repository.DatePtr(day)}
-			linkMerged[k] = e
-			return e
-		}
-		for _, c := range linkClicks {
-			addLink(c.TrackingLinkID, c.Day.Time).Clicks = int32(c.Clicks)
-		}
-		for _, uc := range linkUnique {
-			addLink(uc.TrackingLinkID, uc.Day.Time).UniqueClicks = int32(uc.UniqueClicks)
-		}
-		for _, rg := range linkRegs {
-			addLink(rg.TrackingLinkID, rg.Day.Time).Registrations = int32(rg.Registrations)
-		}
-		for _, f := range linkFirsts {
-			addLink(f.TrackingLinkID, f.Day.Time).FirstPayments = int32(f.FirstPayments)
-		}
-		for _, inc := range linkIncome {
-			if !inc.TrackingLinkID.Valid {
-				continue
-			}
-			addLink(inc.TrackingLinkID.String(), inc.Day.Time).IncomeKopecks = inc.IncomeKopecks
-		}
-		for _, p := range linkMerged {
-			if _, err := q.UpsertDailyLinkStats(ctx, *p); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	return tracking.RecomputeDailyStats(ctx, r.Pool, from, to)
 }
 
 // countersLoop flushes Redis click buffer every 5s.
@@ -263,13 +162,16 @@ func (r *Runner) countersLoop(ctx context.Context) {
 		case <-ticker.C:
 			if err := r.Counters.Flush(ctx, func(ctx context.Context, linkID, ip, ua, ref string, at time.Time) error {
 				q := repository.New(r.Pool)
-				_, err := q.CreateTrackingClick(ctx, repository.CreateTrackingClickParams{
+				params := repository.CreateTrackingClickParams{
 					TrackingLinkID: linkID,
 					Column2:        ip,
 					UserAgent:      repository.TextPtr(&ua),
 					Referrer:       repository.TextPtr(&ref),
+				}
+				return tracking.InsertWithPartitionRetry(ctx, r.Pool, at, func() error {
+					_, err := q.CreateTrackingClick(ctx, params)
+					return err
 				})
-				return err
 			}); err != nil {
 				r.Log.Error("counters flush", "err", err)
 			}

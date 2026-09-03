@@ -13,7 +13,6 @@ import (
 	"cashx/internal/platform"
 	"cashx/internal/platform/httpjson"
 	"cashx/internal/platform/httpmw"
-	"cashx/internal/repository"
 )
 
 // RedirectDeps are the redirect service dependencies.
@@ -45,8 +44,7 @@ func NewRedirectHandler(d RedirectDeps) http.Handler {
 				http.Redirect(w, req, d.Cfg.FrontendOrigin, http.StatusFound)
 				return
 			}
-			q := repository.New(d.Pool)
-			result, err := RecordClick(req.Context(), q, code, platform.RemoteIPKey(req), req.UserAgent(), req.Referer())
+			result, err := RecordClick(req.Context(), d.Pool, code, platform.RemoteIPKey(req), req.UserAgent(), req.Referer())
 			if err != nil {
 				if errors.Is(err, platform.ErrNotFound) {
 					http.Redirect(w, req, d.Cfg.FrontendOrigin, http.StatusFound)

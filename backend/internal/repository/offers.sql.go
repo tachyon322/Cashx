@@ -618,6 +618,54 @@ func (q *Queries) GetTrackingLinkByCodeExtended(ctx context.Context, code string
 	return i, err
 }
 
+const getTrackingLinkByCodeForProject = `-- name: GetTrackingLinkByCodeForProject :one
+SELECT tl.id, tl.code, tl.name, tl.type, tl.is_active, tl.registration_bonus,
+       a.partner_id, a.offer_id, a.status AS access_status
+FROM tracking_links tl
+JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
+JOIN offers o ON o.id = a.offer_id
+WHERE tl.code = $1 AND o.project_id = $2
+ORDER BY tl.is_active DESC, tl.created_at
+LIMIT 1
+`
+
+type GetTrackingLinkByCodeForProjectParams struct {
+	Code      string `json:"code"`
+	ProjectID string `json:"project_id"`
+}
+
+type GetTrackingLinkByCodeForProjectRow struct {
+	ID                string      `json:"id"`
+	Code              string      `json:"code"`
+	Name              string      `json:"name"`
+	Type              string      `json:"type"`
+	IsActive          bool        `json:"is_active"`
+	RegistrationBonus pgtype.Int4 `json:"registration_bonus"`
+	PartnerID         string      `json:"partner_id"`
+	OfferID           string      `json:"offer_id"`
+	AccessStatus      string      `json:"access_status"`
+}
+
+// Resolve a source (tracking link) by its code within one project's scope.
+// Used by the integrations API: promo-code attribution (registration.created
+// with source_code instead of click_token) and the source lookup endpoint.
+func (q *Queries) GetTrackingLinkByCodeForProject(ctx context.Context, arg GetTrackingLinkByCodeForProjectParams) (GetTrackingLinkByCodeForProjectRow, error) {
+	row := q.db.QueryRow(ctx, getTrackingLinkByCodeForProject, arg.Code, arg.ProjectID)
+	var i GetTrackingLinkByCodeForProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.Name,
+		&i.Type,
+		&i.IsActive,
+		&i.RegistrationBonus,
+		&i.PartnerID,
+		&i.OfferID,
+		&i.AccessStatus,
+	)
+	return i, err
+}
+
 const getTrackingLinkByID = `-- name: GetTrackingLinkByID :one
 SELECT id, partner_offer_access_id, code, name, comment, group_id, is_default, is_active, type, registration_bonus, domain, redirect_id, legacy_kazik_source_id, created_at, updated_at FROM tracking_links WHERE id = $1
 `

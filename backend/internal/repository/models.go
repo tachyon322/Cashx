@@ -113,6 +113,7 @@ type ExternalUserAttribution struct {
 	ID              int64              `json:"id"`
 	ProjectID       string             `json:"project_id"`
 	TrackingClickID pgtype.Int8        `json:"tracking_click_id"`
+	TrackingLinkID  pgtype.UUID        `json:"tracking_link_id"`
 	PartnerID       pgtype.UUID        `json:"partner_id"`
 	OfferID         pgtype.UUID        `json:"offer_id"`
 	ExternalUserID  string             `json:"external_user_id"`

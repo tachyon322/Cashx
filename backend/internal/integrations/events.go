@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,15 +25,25 @@ type EventInput struct {
 	OccurredAt        time.Time  `json:"occurred_at"`
 	ExternalUserID    string     `json:"external_user_id"`
 	ClickToken        *string    `json:"click_token"`
+	SourceCode        *string    `json:"source_code"`
 	ExternalPaymentID *string    `json:"external_payment_id"`
 	AmountKopecks     *int64     `json:"amount_kopecks"`
 	Currency          *string    `json:"currency"`
 }
 
+// EventSource describes the traffic source an event was attributed to.
+type EventSource struct {
+	Code             string `json:"code"`
+	Type             string `json:"type"`
+	IsPromo          bool   `json:"is_promo"`
+	RegistrationBonus *int32 `json:"registration_bonus,omitempty"`
+}
+
 // ProcessResult is the API response for an event.
 type ProcessResult struct {
-	Status string `json:"status"` // accepted | duplicate | ignored
-	Reason string `json:"reason,omitempty"`
+	Status string      `json:"status"` // accepted | duplicate | ignored
+	Reason string      `json:"reason,omitempty"`
+	Source *EventSource `json:"source,omitempty"`
 }
 
 // Service processes project events.
@@ -55,6 +66,11 @@ func (s *Service) Process(ctx context.Context, projectID string, rawBody []byte)
 	if in.Type != "registration.created" && in.Type != "revenue.confirmed" && in.Type != "revenue.reversed" {
 		return ProcessResult{}, fmt.Errorf("%w: invalid_payload", platform.ErrValidation)
 	}
+
+	// Ensure the monthly partitions for the event's month (and the current
+	// one) exist before any insert — best-effort guard against SQLSTATE 23514
+	// (see migrations/00021_partition_security.sql).
+	_ = tracking.EnsurePartitionsFor(ctx, s.Pool, in.OccurredAt)
 
 	var result ProcessResult
 	err := repository.WithTx(ctx, s.Pool, func(tq *repository.Queries) error {
@@ -99,32 +115,89 @@ func (s *Service) Process(ctx context.Context, projectID string, rawBody []byte)
 }
 
 func (s *Service) processRegistration(ctx context.Context, tq *repository.Queries, projectID string, in *EventInput) (ProcessResult, error) {
-	if in.ClickToken == nil || *in.ClickToken == "" {
+	// Attribution path 1 (preferred): a signed click_token from the redirect
+	// service (/c/{code}) captured by the project frontend at registration.
+	if in.ClickToken != nil && *in.ClickToken != "" {
+		clickID, err := tracking.VerifyClickToken(s.ClickTokenSecret, *in.ClickToken)
+		if err != nil {
+			// Fall through to the source_code path — the token may have expired.
+			if in.SourceCode == nil || *in.SourceCode == "" {
+				return ProcessResult{Status: "ignored", Reason: "invalid_click_token"}, nil
+			}
+		} else {
+			click, err := tq.GetClickWithLink(ctx, clickID)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					if in.SourceCode == nil || *in.SourceCode == "" {
+						return ProcessResult{Status: "ignored", Reason: "invalid_click_token"}, nil
+					}
+				} else {
+					return ProcessResult{}, err
+				}
+			} else {
+				// First-touch: existing attribution is never overwritten.
+				_, err = tq.CreateAttribution(ctx, repository.CreateAttributionParams{
+					ProjectID:       projectID,
+					TrackingClickID: pgtype.Int8{Int64: clickID, Valid: true},
+					TrackingLinkID:  repository.UUIDPtr(&click.TrackingLinkID),
+					PartnerID:       repository.UUIDPtr(&click.PartnerID),
+					OfferID:         repository.UUIDPtr(&click.OfferID),
+					ExternalUserID:  in.ExternalUserID,
+				})
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return ProcessResult{}, err
+				}
+				return ProcessResult{Status: "accepted"}, nil
+			}
+		}
+	}
+
+	// Attribution path 2: a source/promo code (e.g. the user registered with
+	// ?ref=PROMOCODE). No click exists for promo sources, so the attribution
+	// is tied to the tracking link itself.
+	if in.SourceCode == nil || *in.SourceCode == "" {
 		return ProcessResult{Status: "ignored", Reason: "invalid_click_token"}, nil
 	}
-	clickID, err := tracking.VerifyClickToken(s.ClickTokenSecret, *in.ClickToken)
-	if err != nil {
-		return ProcessResult{Status: "ignored", Reason: "invalid_click_token"}, nil
-	}
-	click, err := tq.GetClickWithLink(ctx, clickID)
+	code := strings.ToUpper(strings.TrimSpace(*in.SourceCode))
+	link, err := tq.GetTrackingLinkByCodeForProject(ctx, repository.GetTrackingLinkByCodeForProjectParams{
+		Code: code, ProjectID: projectID,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ProcessResult{Status: "ignored", Reason: "invalid_click_token"}, nil
+			return ProcessResult{Status: "ignored", Reason: "unknown_source_code"}, nil
 		}
 		return ProcessResult{}, err
 	}
+	if !link.IsActive || link.AccessStatus != "active" {
+		return ProcessResult{Status: "ignored", Reason: "inactive_source"}, nil
+	}
 	// First-touch: existing attribution is never overwritten.
 	_, err = tq.CreateAttribution(ctx, repository.CreateAttributionParams{
-		ProjectID:       projectID,
-		TrackingClickID: pgtype.Int8{Int64: clickID, Valid: true},
-		PartnerID:       repository.UUIDPtr(&click.PartnerID),
-		OfferID:         repository.UUIDPtr(&click.OfferID),
-		ExternalUserID:  in.ExternalUserID,
+		ProjectID:      projectID,
+		PartnerID:      repository.UUIDPtr(&link.PartnerID),
+		OfferID:        repository.UUIDPtr(&link.OfferID),
+		TrackingLinkID: repository.UUIDPtr(&link.ID),
+		ExternalUserID: in.ExternalUserID,
 	})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return ProcessResult{}, err
 	}
-	return ProcessResult{Status: "accepted"}, nil
+	return ProcessResult{
+		Status: "accepted",
+		Source: &EventSource{
+			Code:              link.Code,
+			Type:              link.Type,
+			IsPromo:           link.Type == "promo",
+			RegistrationBonus: bonusPtr(link.RegistrationBonus),
+		},
+	}, nil
+}
+
+func bonusPtr(v pgtype.Int4) *int32 {
+	if !v.Valid {
+		return nil
+	}
+	return &v.Int32
 }
 
 func (s *Service) processConfirmed(ctx context.Context, tq *repository.Queries, projectID string, in *EventInput) (ProcessResult, error) {
@@ -191,9 +264,12 @@ func (s *Service) processConfirmed(ctx context.Context, tq *repository.Queries, 
 		return ProcessResult{Status: "accepted"}, nil
 	}
 	// Attribute the earning to the traffic source (tracking link) of the
-	// first-touch click, so per-source income can be aggregated cheaply.
+	// first-touch attribution. Promo attributions carry the link directly;
+	// click-based attributions resolve it through the click.
 	linkID := pgtype.UUID{}
-	if attr.TrackingClickID.Valid {
+	if attr.TrackingLinkID.Valid {
+		linkID = attr.TrackingLinkID
+	} else if attr.TrackingClickID.Valid {
 		if click, err := tq.GetClickWithLink(ctx, attr.TrackingClickID.Int64); err == nil {
 			linkID = repository.UUIDPtr(&click.TrackingLinkID)
 		}

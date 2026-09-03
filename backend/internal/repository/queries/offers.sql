@@ -183,6 +183,19 @@ RETURNING *;
 -- name: GetTrackingLinkByCodeExtended :one
 SELECT * FROM tracking_links WHERE code = $1;
 
+-- name: GetTrackingLinkByCodeForProject :one
+-- Resolve a source (tracking link) by its code within one project's scope.
+-- Used by the integrations API: promo-code attribution (registration.created
+-- with source_code instead of click_token) and the source lookup endpoint.
+SELECT tl.id, tl.code, tl.name, tl.type, tl.is_active, tl.registration_bonus,
+       a.partner_id, a.offer_id, a.status AS access_status
+FROM tracking_links tl
+JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
+JOIN offers o ON o.id = a.offer_id
+WHERE tl.code = $1 AND o.project_id = $2
+ORDER BY tl.is_active DESC, tl.created_at
+LIMIT 1;
+
 -- name: ResolvePromoCode :one
 SELECT * FROM tracking_links WHERE code = $1 AND type = 'promo' AND is_active = true LIMIT 1;
 

@@ -147,7 +147,7 @@ func (q *Queries) AggFirstPaymentsByDay(ctx context.Context, arg AggFirstPayment
 }
 
 const aggFirstPaymentsByLink = `-- name: AggFirstPaymentsByLink :many
-SELECT c.tracking_link_id, fp.day, count(*)::bigint AS first_payments
+SELECT COALESCE(a.tracking_link_id, c.tracking_link_id) AS tracking_link_id, fp.day, count(*)::bigint AS first_payments
 FROM (
     SELECT attribution_id, (min(occurred_at) AT TIME ZONE 'Europe/Moscow')::date AS day
     FROM conversion_events
@@ -155,8 +155,9 @@ FROM (
     GROUP BY attribution_id
 ) fp
 JOIN external_user_attributions a ON a.id = fp.attribution_id
-JOIN tracking_clicks c ON c.id = a.tracking_click_id
-GROUP BY c.tracking_link_id, fp.day
+LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
+WHERE COALESCE(a.tracking_link_id, c.tracking_link_id) IS NOT NULL
+GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id), fp.day
 `
 
 type AggFirstPaymentsByLinkParams struct {
@@ -317,11 +318,13 @@ func (q *Queries) AggRegistrationsByDay(ctx context.Context, arg AggRegistration
 }
 
 const aggRegistrationsByLink = `-- name: AggRegistrationsByLink :many
-SELECT c.tracking_link_id, (a.first_seen_at AT TIME ZONE 'Europe/Moscow')::date AS day, count(*)::bigint AS registrations
+SELECT COALESCE(a.tracking_link_id, c.tracking_link_id) AS tracking_link_id,
+       (a.first_seen_at AT TIME ZONE 'Europe/Moscow')::date AS day, count(*)::bigint AS registrations
 FROM external_user_attributions a
-JOIN tracking_clicks c ON c.id = a.tracking_click_id
+LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
 WHERE a.first_seen_at >= $1 AND a.first_seen_at < $2
-GROUP BY c.tracking_link_id, day
+  AND COALESCE(a.tracking_link_id, c.tracking_link_id) IS NOT NULL
+GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id), day
 `
 
 type AggRegistrationsByLinkParams struct {
@@ -440,15 +443,16 @@ func (q *Queries) AggUniqueClicksByLink(ctx context.Context, arg AggUniqueClicks
 }
 
 const createAttribution = `-- name: CreateAttribution :one
-INSERT INTO external_user_attributions (project_id, tracking_click_id, partner_id, offer_id, external_user_id)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO external_user_attributions (project_id, tracking_click_id, tracking_link_id, partner_id, offer_id, external_user_id)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (project_id, external_user_id) DO NOTHING
-RETURNING id, project_id, tracking_click_id, partner_id, offer_id, external_user_id, first_seen_at
+RETURNING id, project_id, tracking_click_id, tracking_link_id, partner_id, offer_id, external_user_id, first_seen_at
 `
 
 type CreateAttributionParams struct {
 	ProjectID       string      `json:"project_id"`
 	TrackingClickID pgtype.Int8 `json:"tracking_click_id"`
+	TrackingLinkID  pgtype.UUID `json:"tracking_link_id"`
 	PartnerID       pgtype.UUID `json:"partner_id"`
 	OfferID         pgtype.UUID `json:"offer_id"`
 	ExternalUserID  string      `json:"external_user_id"`
@@ -458,6 +462,7 @@ func (q *Queries) CreateAttribution(ctx context.Context, arg CreateAttributionPa
 	row := q.db.QueryRow(ctx, createAttribution,
 		arg.ProjectID,
 		arg.TrackingClickID,
+		arg.TrackingLinkID,
 		arg.PartnerID,
 		arg.OfferID,
 		arg.ExternalUserID,
@@ -467,6 +472,7 @@ func (q *Queries) CreateAttribution(ctx context.Context, arg CreateAttributionPa
 		&i.ID,
 		&i.ProjectID,
 		&i.TrackingClickID,
+		&i.TrackingLinkID,
 		&i.PartnerID,
 		&i.OfferID,
 		&i.ExternalUserID,
@@ -534,7 +540,7 @@ func (q *Queries) EventLock(ctx context.Context, hashtextextended string) error 
 }
 
 const getAttributionByProjectUser = `-- name: GetAttributionByProjectUser :one
-SELECT id, project_id, tracking_click_id, partner_id, offer_id, external_user_id, first_seen_at
+SELECT id, project_id, tracking_click_id, tracking_link_id, partner_id, offer_id, external_user_id, first_seen_at
 FROM external_user_attributions WHERE project_id = $1 AND external_user_id = $2
 `
 
@@ -550,6 +556,7 @@ func (q *Queries) GetAttributionByProjectUser(ctx context.Context, arg GetAttrib
 		&i.ID,
 		&i.ProjectID,
 		&i.TrackingClickID,
+		&i.TrackingLinkID,
 		&i.PartnerID,
 		&i.OfferID,
 		&i.ExternalUserID,
@@ -779,13 +786,14 @@ func (q *Queries) GetIncomingEvent(ctx context.Context, arg GetIncomingEventPara
 const historyAttributionsByLink = `-- name: HistoryAttributionsByLink :many
 SELECT a.id, a.external_user_id, a.first_seen_at
 FROM external_user_attributions a
-JOIN tracking_clicks c ON c.id = a.tracking_click_id
-WHERE c.tracking_link_id = $1 AND a.first_seen_at >= $2 AND a.first_seen_at <= $3
+WHERE COALESCE(a.tracking_link_id,
+        (SELECT c.tracking_link_id FROM tracking_clicks c WHERE c.id = a.tracking_click_id)) = $1
+  AND a.first_seen_at >= $2 AND a.first_seen_at <= $3
 ORDER BY a.first_seen_at DESC LIMIT $4
 `
 
 type HistoryAttributionsByLinkParams struct {
-	TrackingLinkID string             `json:"tracking_link_id"`
+	TrackingLinkID pgtype.UUID        `json:"tracking_link_id"`
 	FirstSeenAt    pgtype.Timestamptz `json:"first_seen_at"`
 	FirstSeenAt_2  pgtype.Timestamptz `json:"first_seen_at_2"`
 	Limit          int32              `json:"limit"`
@@ -872,13 +880,14 @@ const historyConversionsByLink = `-- name: HistoryConversionsByLink :many
 SELECT ce.id, ce.external_user_id, ce.amount_kopecks, ce.occurred_at
 FROM conversion_events ce
 JOIN external_user_attributions a ON a.id = ce.attribution_id
-JOIN tracking_clicks c ON c.id = a.tracking_click_id
-WHERE c.tracking_link_id = $1 AND ce.occurred_at >= $2 AND ce.occurred_at <= $3
+WHERE COALESCE(a.tracking_link_id,
+        (SELECT c.tracking_link_id FROM tracking_clicks c WHERE c.id = a.tracking_click_id)) = $1
+  AND ce.occurred_at >= $2 AND ce.occurred_at <= $3
 ORDER BY ce.occurred_at DESC LIMIT $4
 `
 
 type HistoryConversionsByLinkParams struct {
-	TrackingLinkID string             `json:"tracking_link_id"`
+	TrackingLinkID pgtype.UUID        `json:"tracking_link_id"`
 	OccurredAt     pgtype.Timestamptz `json:"occurred_at"`
 	OccurredAt_2   pgtype.Timestamptz `json:"occurred_at_2"`
 	Limit          int32              `json:"limit"`

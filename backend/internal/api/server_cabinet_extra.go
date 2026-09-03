@@ -241,6 +241,7 @@ func (s *Server) CabinetAttrib(w http.ResponseWriter, r *http.Request) {
 						_, err = s.Q.CreateAttribution(r.Context(), repository.CreateAttributionParams{
 							ProjectID:       projectID,
 							TrackingClickID: repository.Int64ToPg(nil),
+							TrackingLinkID:  repository.UUIDPtr(&link.ID),
 							PartnerID:       repository.UUIDPtr(&access.PartnerID),
 							OfferID:         repository.UUIDPtr(&access.OfferID),
 							ExternalUserID:  u.ID,

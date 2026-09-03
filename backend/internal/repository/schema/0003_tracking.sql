@@ -16,6 +16,7 @@ CREATE TABLE external_user_attributions (
     id                 bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     project_id         uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     tracking_click_id  bigint,
+    tracking_link_id   uuid,
     partner_id         uuid,
     offer_id           uuid,
     external_user_id   text NOT NULL,
@@ -24,6 +25,8 @@ CREATE TABLE external_user_attributions (
 );
 CREATE INDEX attributions_partner_offer_firstseen_idx
     ON external_user_attributions(partner_id, offer_id, first_seen_at);
+CREATE INDEX attributions_link_firstseen_idx
+    ON external_user_attributions(tracking_link_id, first_seen_at);
 
 CREATE TABLE incoming_events (
     id                bigint GENERATED ALWAYS AS IDENTITY,

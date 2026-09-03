@@ -179,11 +179,12 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 			r.Get("/admin/audit", w.AdminAuditList)
 		})
 
-		// Signed project events.
+		// Signed project events + source lookup (HMAC).
 		r.Group(func(r chi.Router) {
-			imw := &integrations.Middleware{Q: s.Q, Offers: s.Offers}
+			imw := &integrations.Middleware{Q: s.Q, Offers: s.Offers, Log: s.Log}
 			r.Use(rl("integrations", 300, integrations.RateLimitKey), imw.Verify)
 			r.Post("/integrations/events", w.IntegrationsEvent)
+			r.Get("/integrations/source", s.IntegrationsSource)
 		})
 	})
 

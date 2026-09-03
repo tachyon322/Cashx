@@ -644,7 +644,7 @@ func (s *Server) offerHistory(ctx context.Context, partnerID, offerID string, fr
 			out = append(out, HistoryRow{ID: "click_" + strconv.FormatInt(c.ID, 10), Kind: "click", OccurredAt: c.CreatedAt.Time})
 		}
 		attrs, err := s.Q.HistoryAttributionsByLink(ctx, repository.HistoryAttributionsByLinkParams{
-			TrackingLinkID: link.ID, FirstSeenAt: repository.TimePtr(&from), FirstSeenAt_2: repository.TimePtr(&to), Limit: int32(limit),
+			TrackingLinkID: repository.UUIDPtr(&link.ID), FirstSeenAt: repository.TimePtr(&from), FirstSeenAt_2: repository.TimePtr(&to), Limit: int32(limit),
 		})
 		if err != nil {
 			return nil, err
@@ -653,7 +653,7 @@ func (s *Server) offerHistory(ctx context.Context, partnerID, offerID string, fr
 			out = append(out, HistoryRow{ID: "reg_" + strconv.FormatInt(a.ID, 10), Kind: "registration", OccurredAt: a.FirstSeenAt.Time})
 		}
 		convs, err := s.Q.HistoryConversionsByLink(ctx, repository.HistoryConversionsByLinkParams{
-			TrackingLinkID: link.ID, OccurredAt: repository.TimePtr(&from), OccurredAt_2: repository.TimePtr(&to), Limit: int32(limit),
+			TrackingLinkID: repository.UUIDPtr(&link.ID), OccurredAt: repository.TimePtr(&from), OccurredAt_2: repository.TimePtr(&to), Limit: int32(limit),
 		})
 		if err != nil {
 			return nil, err

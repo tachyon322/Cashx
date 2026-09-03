@@ -108,6 +108,10 @@ type Querier interface {
 	GetStaffRolesByUserID(ctx context.Context, userID string) ([]GetStaffRolesByUserIDRow, error)
 	GetTrackingLinkByCode(ctx context.Context, code string) (GetTrackingLinkByCodeRow, error)
 	GetTrackingLinkByCodeExtended(ctx context.Context, code string) (TrackingLink, error)
+	// Resolve a source (tracking link) by its code within one project's scope.
+	// Used by the integrations API: promo-code attribution (registration.created
+	// with source_code instead of click_token) and the source lookup endpoint.
+	GetTrackingLinkByCodeForProject(ctx context.Context, arg GetTrackingLinkByCodeForProjectParams) (GetTrackingLinkByCodeForProjectRow, error)
 	GetTrackingLinkByID(ctx context.Context, id string) (TrackingLink, error)
 	GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error)
 	GetUserByPartnerID(ctx context.Context, id string) (GetUserByPartnerIDRow, error)

@@ -12,13 +12,13 @@ JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
 WHERE c.id = $1;
 
 -- name: CreateAttribution :one
-INSERT INTO external_user_attributions (project_id, tracking_click_id, partner_id, offer_id, external_user_id)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO external_user_attributions (project_id, tracking_click_id, tracking_link_id, partner_id, offer_id, external_user_id)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (project_id, external_user_id) DO NOTHING
-RETURNING id, project_id, tracking_click_id, partner_id, offer_id, external_user_id, first_seen_at;
+RETURNING id, project_id, tracking_click_id, tracking_link_id, partner_id, offer_id, external_user_id, first_seen_at;
 
 -- name: GetAttributionByProjectUser :one
-SELECT id, project_id, tracking_click_id, partner_id, offer_id, external_user_id, first_seen_at
+SELECT id, project_id, tracking_click_id, tracking_link_id, partner_id, offer_id, external_user_id, first_seen_at
 FROM external_user_attributions WHERE project_id = $1 AND external_user_id = $2;
 
 -- name: EventLock :exec
@@ -203,14 +203,16 @@ WHERE created_at >= $1 AND created_at < $2 AND ip IS NOT NULL
 GROUP BY tracking_link_id, day;
 
 -- name: AggRegistrationsByLink :many
-SELECT c.tracking_link_id, (a.first_seen_at AT TIME ZONE 'Europe/Moscow')::date AS day, count(*)::bigint AS registrations
+SELECT COALESCE(a.tracking_link_id, c.tracking_link_id) AS tracking_link_id,
+       (a.first_seen_at AT TIME ZONE 'Europe/Moscow')::date AS day, count(*)::bigint AS registrations
 FROM external_user_attributions a
-JOIN tracking_clicks c ON c.id = a.tracking_click_id
+LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
 WHERE a.first_seen_at >= $1 AND a.first_seen_at < $2
-GROUP BY c.tracking_link_id, day;
+  AND COALESCE(a.tracking_link_id, c.tracking_link_id) IS NOT NULL
+GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id), day;
 
 -- name: AggFirstPaymentsByLink :many
-SELECT c.tracking_link_id, fp.day, count(*)::bigint AS first_payments
+SELECT COALESCE(a.tracking_link_id, c.tracking_link_id) AS tracking_link_id, fp.day, count(*)::bigint AS first_payments
 FROM (
     SELECT attribution_id, (min(occurred_at) AT TIME ZONE 'Europe/Moscow')::date AS day
     FROM conversion_events
@@ -218,8 +220,9 @@ FROM (
     GROUP BY attribution_id
 ) fp
 JOIN external_user_attributions a ON a.id = fp.attribution_id
-JOIN tracking_clicks c ON c.id = a.tracking_click_id
-GROUP BY c.tracking_link_id, fp.day;
+LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
+WHERE COALESCE(a.tracking_link_id, c.tracking_link_id) IS NOT NULL
+GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id), fp.day;
 
 -- name: AggIncomeByLink :many
 SELECT tracking_link_id, (created_at AT TIME ZONE 'Europe/Moscow')::date AS day, sum(amount_kopecks)::bigint AS income_kopecks
@@ -238,16 +241,18 @@ ORDER BY c.created_at DESC LIMIT $4;
 -- name: HistoryAttributionsByLink :many
 SELECT a.id, a.external_user_id, a.first_seen_at
 FROM external_user_attributions a
-JOIN tracking_clicks c ON c.id = a.tracking_click_id
-WHERE c.tracking_link_id = $1 AND a.first_seen_at >= $2 AND a.first_seen_at <= $3
+WHERE COALESCE(a.tracking_link_id,
+        (SELECT c.tracking_link_id FROM tracking_clicks c WHERE c.id = a.tracking_click_id)) = $1
+  AND a.first_seen_at >= $2 AND a.first_seen_at <= $3
 ORDER BY a.first_seen_at DESC LIMIT $4;
 
 -- name: HistoryConversionsByLink :many
 SELECT ce.id, ce.external_user_id, ce.amount_kopecks, ce.occurred_at
 FROM conversion_events ce
 JOIN external_user_attributions a ON a.id = ce.attribution_id
-JOIN tracking_clicks c ON c.id = a.tracking_click_id
-WHERE c.tracking_link_id = $1 AND ce.occurred_at >= $2 AND ce.occurred_at <= $3
+WHERE COALESCE(a.tracking_link_id,
+        (SELECT c.tracking_link_id FROM tracking_clicks c WHERE c.id = a.tracking_click_id)) = $1
+  AND ce.occurred_at >= $2 AND ce.occurred_at <= $3
 ORDER BY ce.occurred_at DESC LIMIT $4;
 
 -- name: HistoryEarningsByPartnerOffer :many

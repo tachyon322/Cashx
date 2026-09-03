@@ -87,6 +87,13 @@ func main() {
 	}
 	fmt.Printf("Project %s -> %s, offer %s\n", kazikProjectSlug, projectID, offerID)
 
+	// Ensure monthly partitions cover the whole kazik history before any
+	// clicks/events are inserted (the BEFORE STATEMENT guard only covers ±1
+	// month around now; kazik data goes further back).
+	if _, err := cashxPool.Exec(ctx, `SELECT ensure_partitions_range(36, 2)`); err != nil {
+		log.Fatalf("ensure partitions: %v (run migrations first)", err)
+	}
+
 	report := Report{}
 	partnerMap := make(map[string]string)     // kazik partner id -> cashx partner_profiles id
 	partnerUserMap := make(map[string]string) // kazik partner id -> cashx user id
@@ -887,9 +894,11 @@ func migrateSignups(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID s
 			report.Signups.Failed++
 			continue
 		}
-		// external_user_attributions: first-touch, ON CONFLICT DO NOTHING
-		_, err = cashx.Exec(ctx, `INSERT INTO external_user_attributions (project_id, external_user_id, partner_id, offer_id, tracking_click_id, first_seen_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (project_id, external_user_id) DO NOTHING`,
-			projectID, sg.UserID, partnerID, offerID, clickIDVal, sg.CreatedAt)
+		// external_user_attributions: first-touch, ON CONFLICT DO NOTHING.
+		// tracking_link_id is set directly so promo (no-click) signups still
+		// aggregate into per-source stats (see 00022_attribution_tracking_link).
+		_, err = cashx.Exec(ctx, `INSERT INTO external_user_attributions (project_id, external_user_id, partner_id, offer_id, tracking_click_id, tracking_link_id, first_seen_at) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (project_id, external_user_id) DO NOTHING`,
+			projectID, sg.UserID, partnerID, offerID, clickIDVal, linkID, sg.CreatedAt)
 		if err != nil {
 			report.Signups.Failed++
 			report.Errors = append(report.Errors, fmt.Sprintf("signup %s attribution: %v", sg.ID, err))
@@ -992,7 +1001,7 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 					var tc *int64
 					// create dummy attribution with first_seen = createdAt
 					var newAID int64
-					err = cashx.QueryRow(ctx, `INSERT INTO external_user_attributions (project_id, external_user_id, partner_id, offer_id, tracking_click_id, first_seen_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (project_id, external_user_id) DO UPDATE SET partner_id=EXCLUDED.partner_id RETURNING id`, projectID, *tr.RefUserID, cashxPID, offerID, tc, tr.CreatedAt).Scan(&newAID)
+					err = cashx.QueryRow(ctx, `INSERT INTO external_user_attributions (project_id, external_user_id, partner_id, offer_id, tracking_click_id, tracking_link_id, first_seen_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (project_id, external_user_id) DO UPDATE SET partner_id=EXCLUDED.partner_id RETURNING id`, projectID, *tr.RefUserID, cashxPID, offerID, tc, dummyLinkID, tr.CreatedAt).Scan(&newAID)
 					if err == nil {
 						attributionID = &newAID
 						if dummyLinkID != "" {
