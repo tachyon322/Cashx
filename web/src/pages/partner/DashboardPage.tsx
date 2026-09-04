@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Link2, Play, TrendingUp, Search, Filter, BarChart3, Copy, Pencil } from 'lucide-react'
 import { CalendarDays, Boxes, Layers3 } from 'lucide-react'
-import { useAllSources, useOffers, useRecentActivity, useSummary } from '../../api/queries'
+import { useAllSources, useOffers, useSummary } from '../../api/queries'
 import { AdvBanner, HeroNeonArt } from '../../components/AdvBanner'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
@@ -66,7 +66,6 @@ export function DashboardPage() {
   const { data: summary } = useSummary()
   const { data: offersData } = useOffers()
   const { data: allSources, isLoading: sourcesLoading, isError: sourcesError } = useAllSources()
-  const { data: activityData, isLoading: activityLoading } = useRecentActivity(50)
   const [period, setPeriod] = useState<IncomePeriod>('day')
   const [trafficSearch, setTrafficSearch] = useState('')
 
@@ -218,7 +217,7 @@ export function DashboardPage() {
               <MultiLineChart data={chartData} series={INCOME_SERIES} formatValue={formatIncomeValue} />
             </Card>
 
-            <RecentActivityCard items={activityData?.items} isLoading={activityLoading} />
+            <RecentActivityCard />
 
             <TopSourcesCard items={topSources} isLoading={topSourcesLoading} onViewAll={() => navigate('/cabinet/offers')} />
           </>

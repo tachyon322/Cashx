@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Download, Lock, TrendingUp } from 'lucide-react'
 import { ApiRequestError } from '../../api/client'
-import { useOfferStats, useRecentActivity, useSources } from '../../api/queries'
-import type { ActivityItem } from '../../api/queries'
+import { useOfferStats, useSources } from '../../api/queries'
 import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
@@ -90,7 +89,6 @@ export function OfferDetailPage() {
   const navigate = useNavigate()
   const query = useOfferStats(offerId)
   const { data: sourcesData } = useSources(offerId)
-  const { data: activityData, isLoading: activityLoading } = useRecentActivity(50, offerId || undefined)
   const [period, setPeriod] = useState<IncomePeriod>('day')
   const [chartMetric, setChartMetric] = useState<ChartMetric>('all')
   const [topMetric, setTopMetric] = useState<TopMetric>('income')
@@ -126,8 +124,6 @@ export function OfferDetailPage() {
       offerId={offerId}
       data={query.data}
       sources={sourcesData?.items ?? []}
-      activityItems={activityData?.items}
-      activityLoading={activityLoading}
       period={period}
       setPeriod={setPeriod}
       chartMetric={chartMetric}
@@ -142,8 +138,6 @@ interface OfferDetailProps {
   offerId: string
   data: OfferStats
   sources: Source[]
-  activityItems?: ActivityItem[]
-  activityLoading: boolean
   period: IncomePeriod
   setPeriod: (p: IncomePeriod) => void
   chartMetric: ChartMetric
@@ -156,8 +150,6 @@ function OfferDetail({
   offerId,
   data,
   sources,
-  activityItems,
-  activityLoading,
   period,
   setPeriod,
   chartMetric,
@@ -379,8 +371,7 @@ function OfferDetail({
 
       <RecentActivityCard
         className="w-full xl:w-[340px] xl:shrink-0"
-        items={activityItems}
-        isLoading={activityLoading}
+        offerId={offerId}
       />
     </div>
   )

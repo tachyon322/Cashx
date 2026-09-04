@@ -23,16 +23,18 @@ type ActivityItem struct {
 // tracking clicks, attributions (registrations), conversion events
 // (payments) and commission earnings, newest first, sliced to limit.
 // Each source table is pre-limited so the merge stays cheap.
-func (s *Service) GetRecentActivity(ctx context.Context, partnerID string, limit int) ([]ActivityItem, error) {
-	return s.getRecentActivity(ctx, partnerID, "", limit)
+// kind filters the feed: "" (all), "income" (payments+earnings+reversals),
+// "signups" (registrations), "clicks".
+func (s *Service) GetRecentActivity(ctx context.Context, partnerID string, limit int, kind string) ([]ActivityItem, error) {
+	return s.getRecentActivity(ctx, partnerID, "", limit, kind)
 }
 
 // GetOfferActivity is GetRecentActivity scoped to one offer (offer page feed).
-func (s *Service) GetOfferActivity(ctx context.Context, partnerID, offerID string, limit int) ([]ActivityItem, error) {
-	return s.getRecentActivity(ctx, partnerID, offerID, limit)
+func (s *Service) GetOfferActivity(ctx context.Context, partnerID, offerID string, limit int, kind string) ([]ActivityItem, error) {
+	return s.getRecentActivity(ctx, partnerID, offerID, limit, kind)
 }
 
-func (s *Service) getRecentActivity(ctx context.Context, partnerID, offerID string, limit int) ([]ActivityItem, error) {
+func (s *Service) getRecentActivity(ctx context.Context, partnerID, offerID string, limit int, kind string) ([]ActivityItem, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -43,6 +45,13 @@ func (s *Service) getRecentActivity(ctx context.Context, partnerID, offerID stri
 	if perSource < 50 {
 		perSource = 50
 	}
+	// Per-tab feeds: a globally truncated "last 50" list starves rare kinds
+	// (on a day with 100+ clicks an earning never makes the cut, so the
+	// income tab shows nothing). Filtering by kind on the backend gives each
+	// tab its own last-N.
+	wantClicks := kind == "" || kind == "clicks"
+	wantRegs := kind == "" || kind == "signups"
+	wantIncome := kind == "" || kind == "income"
 
 	type row struct {
 		item ActivityItem
@@ -63,7 +72,8 @@ func (s *Service) getRecentActivity(ctx context.Context, partnerID, offerID stri
 	}
 
 	// 1. Clicks through the partner's tracking links.
-	clickRows, err := s.Pool.Query(ctx, `
+	if wantClicks {
+		clickRows, err := s.Pool.Query(ctx, `
 		SELECT c.id, c.created_at,
 		       COALESCE(NULLIF(tl.name, ''), tl.code) AS source_name,
 		       o.name AS offer_name
@@ -75,32 +85,34 @@ func (s *Service) getRecentActivity(ctx context.Context, partnerID, offerID stri
 		ORDER BY c.created_at DESC
 		LIMIT $2
 	`, args...)
-	if err != nil {
-		return nil, err
-	}
-	for clickRows.Next() {
-		var id int64
-		var at time.Time
-		var source, offer string
-		if err := clickRows.Scan(&id, &at, &source, &offer); err != nil {
-			clickRows.Close()
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, row{item: ActivityItem{
-			ID:         "click_" + strconv.FormatInt(id, 10),
-			Kind:       "click",
-			SourceName: source,
-			OfferName:  offer,
-			OccurredAt: at.UTC().Format(time.RFC3339),
-		}, at: at})
-	}
-	clickRows.Close()
-	if err := clickRows.Err(); err != nil {
-		return nil, err
+		for clickRows.Next() {
+			var id int64
+			var at time.Time
+			var source, offer string
+			if err := clickRows.Scan(&id, &at, &source, &offer); err != nil {
+				clickRows.Close()
+				return nil, err
+			}
+			out = append(out, row{item: ActivityItem{
+				ID:         "click_" + strconv.FormatInt(id, 10),
+				Kind:       "click",
+				SourceName: source,
+				OfferName:  offer,
+				OccurredAt: at.UTC().Format(time.RFC3339),
+			}, at: at})
+		}
+		clickRows.Close()
+		if err := clickRows.Err(); err != nil {
+			return nil, err
+		}
 	}
 
 	// 2. Registrations (attributions), with link-name fallback via the click.
-	attrRows, err := s.Pool.Query(ctx, `
+	if wantRegs {
+		attrRows, err := s.Pool.Query(ctx, `
 		SELECT a.id, a.first_seen_at,
 		       COALESCE(NULLIF(tl1.name, ''), tl1.code, NULLIF(tl2.name, ''), tl2.code, o.name) AS source_name,
 		       o.name AS offer_name
@@ -113,32 +125,34 @@ func (s *Service) getRecentActivity(ctx context.Context, partnerID, offerID stri
 		ORDER BY a.first_seen_at DESC
 		LIMIT $2
 	`, args...)
-	if err != nil {
-		return nil, err
-	}
-	for attrRows.Next() {
-		var id int64
-		var at time.Time
-		var source, offer string
-		if err := attrRows.Scan(&id, &at, &source, &offer); err != nil {
-			attrRows.Close()
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, row{item: ActivityItem{
-			ID:         "reg_" + strconv.FormatInt(id, 10),
-			Kind:       "registration",
-			SourceName: source,
-			OfferName:  offer,
-			OccurredAt: at.UTC().Format(time.RFC3339),
-		}, at: at})
-	}
-	attrRows.Close()
-	if err := attrRows.Err(); err != nil {
-		return nil, err
+		for attrRows.Next() {
+			var id int64
+			var at time.Time
+			var source, offer string
+			if err := attrRows.Scan(&id, &at, &source, &offer); err != nil {
+				attrRows.Close()
+				return nil, err
+			}
+			out = append(out, row{item: ActivityItem{
+				ID:         "reg_" + strconv.FormatInt(id, 10),
+				Kind:       "registration",
+				SourceName: source,
+				OfferName:  offer,
+				OccurredAt: at.UTC().Format(time.RFC3339),
+			}, at: at})
+		}
+		attrRows.Close()
+		if err := attrRows.Err(); err != nil {
+			return nil, err
+		}
 	}
 
 	// 3. Payments (conversion events) of attributed users.
-	convRows, err := s.Pool.Query(ctx, `
+	if wantIncome {
+		convRows, err := s.Pool.Query(ctx, `
 		SELECT ce.id, ce.amount_kopecks, ce.occurred_at,
 		       COALESCE(NULLIF(tl1.name, ''), tl1.code, NULLIF(tl2.name, ''), tl2.code, o.name) AS source_name,
 		       o.name AS offer_name
@@ -152,9 +166,9 @@ func (s *Service) getRecentActivity(ctx context.Context, partnerID, offerID stri
 		ORDER BY ce.occurred_at DESC
 		LIMIT $2
 	`, args...)
-	if err != nil {
-		return nil, err
-	}
+		if err != nil {
+			return nil, err
+		}
 	for convRows.Next() {
 		var id int64
 		var amount int64
@@ -178,9 +192,11 @@ func (s *Service) getRecentActivity(ctx context.Context, partnerID, offerID stri
 	if err := convRows.Err(); err != nil {
 		return nil, err
 	}
+	} // wantIncome (payments)
 
 	// 4. Commission earnings (reversed_at set => reversal / сторно).
-	earnRows, err := s.Pool.Query(ctx, `
+	if wantIncome {
+		earnRows, err := s.Pool.Query(ctx, `
 		SELECT e.id, e.amount_kopecks, e.reversed_at, e.created_at,
 		       COALESCE(NULLIF(tl.name, ''), tl.code, o.name) AS source_name,
 		       o.name AS offer_name
@@ -191,38 +207,39 @@ func (s *Service) getRecentActivity(ctx context.Context, partnerID, offerID stri
 		ORDER BY e.created_at DESC
 		LIMIT $2
 	`, args...)
-	if err != nil {
-		return nil, err
-	}
-	for earnRows.Next() {
-		var id string
-		var amount int64
-		var reversedAt *time.Time
-		var at time.Time
-		var source, offer string
-		if err := earnRows.Scan(&id, &amount, &reversedAt, &at, &source, &offer); err != nil {
-			earnRows.Close()
+		if err != nil {
 			return nil, err
 		}
-		kind := "earning"
-		amt := amount
-		if reversedAt != nil {
-			kind = "reversal"
-			amt = -amt
+		for earnRows.Next() {
+			var id string
+			var amount int64
+			var reversedAt *time.Time
+			var at time.Time
+			var source, offer string
+			if err := earnRows.Scan(&id, &amount, &reversedAt, &at, &source, &offer); err != nil {
+				earnRows.Close()
+				return nil, err
+			}
+			kind := "earning"
+			amt := amount
+			if reversedAt != nil {
+				kind = "reversal"
+				amt = -amt
+			}
+			out = append(out, row{item: ActivityItem{
+				ID:            "earn_" + id,
+				Kind:          kind,
+				SourceName:    source,
+				OfferName:     offer,
+				AmountKopecks: &amt,
+				OccurredAt:    at.UTC().Format(time.RFC3339),
+			}, at: at})
 		}
-		out = append(out, row{item: ActivityItem{
-			ID:            "earn_" + id,
-			Kind:          kind,
-			SourceName:    source,
-			OfferName:     offer,
-			AmountKopecks: &amt,
-			OccurredAt:    at.UTC().Format(time.RFC3339),
-		}, at: at})
-	}
-	earnRows.Close()
-	if err := earnRows.Err(); err != nil {
-		return nil, err
-	}
+		earnRows.Close()
+		if err := earnRows.Err(); err != nil {
+			return nil, err
+		}
+	} // wantIncome (earnings)
 
 	sort.Slice(out, func(i, j int) bool { return out[i].at.After(out[j].at) })
 	if len(out) > limit {

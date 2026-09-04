@@ -12,11 +12,12 @@ import {
 } from 'lucide-react'
 import { Card } from './Card'
 import { EmptyState } from './EmptyState'
-import type { ActivityItem, ActivityKind } from '../api/queries'
+import type { ActivityFeedKind, ActivityKind } from '../api/queries'
+import { useRecentActivity } from '../api/queries'
 import { formatDateTime, formatRubles, todayStr } from '../lib/format'
 import { cx } from '../lib/cx'
 
-type ActivityFilter = 'all' | 'income' | 'signups' | 'clicks'
+type ActivityFilter = 'all' | ActivityFeedKind
 
 const KIND_META: Record<ActivityKind, { label: string; icon: LucideIcon; tile: string; iconClass: string }> = {
   click: { label: 'Переход', icon: MousePointerClick, tile: 'bg-amber-400/15', iconClass: 'text-amber-300' },
@@ -33,19 +34,6 @@ const FILTERS: ReadonlyArray<{ label: string; value: ActivityFilter }> = [
   { label: 'Переходы', value: 'clicks' },
 ]
 
-function matchesFilter(kind: ActivityKind, filter: ActivityFilter): boolean {
-  switch (filter) {
-    case 'income':
-      return kind === 'payment' || kind === 'earning' || kind === 'reversal'
-    case 'signups':
-      return kind === 'registration'
-    case 'clicks':
-      return kind === 'click'
-    default:
-      return true
-  }
-}
-
 function hasAmount(kind: ActivityKind): boolean {
   return kind === 'payment' || kind === 'earning' || kind === 'reversal'
 }
@@ -55,24 +43,32 @@ function formatAmount(kopecks: number): string {
   return `+${formatRubles(kopecks)}`
 }
 
+function filterToKind(filter: ActivityFilter): ActivityFeedKind | undefined {
+  return filter === 'all' ? undefined : filter
+}
+
 interface RecentActivityCardProps {
-  items?: ActivityItem[]
-  isLoading?: boolean
+  offerId?: string
+  limit?: number
   className?: string
 }
 
-export function RecentActivityCard({ items = [], isLoading = false, className }: RecentActivityCardProps) {
+export function RecentActivityCard({ offerId, limit = 50, className }: RecentActivityCardProps) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<ActivityFilter>('all')
+  // Each tab has its own backend-filtered feed (queryKey includes kind, so
+  // switching tabs is instant from cache; placeholderData keeps the previous
+  // tab visible while the new one loads).
+  const { data, isLoading } = useRecentActivity(limit, offerId, filterToKind(filter))
+  const items = data?.items ?? []
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return items.filter((it) => {
-      if (!matchesFilter(it.kind, filter)) return false
       if (q && !it.source_name.toLowerCase().includes(q) && !it.offer_name.toLowerCase().includes(q)) return false
       return true
     })
-  }, [items, search, filter])
+  }, [items, search])
 
   const exportCsv = () => {
     const header = ['Дата', 'Операция', 'Источник', 'Оффер', 'Сумма, руб']
@@ -153,16 +149,18 @@ export function RecentActivityCard({ items = [], isLoading = false, className }:
             </div>
           ))}
         </div>
-      ) : items.length === 0 ? (
-        <div className="px-2 pb-2">
-          <EmptyState
-            icon={<History size={22} />}
-            title="Пока нет операций"
-            hint="Переходы, регистрации и доход появятся здесь после первой активности"
-          />
-        </div>
       ) : filtered.length === 0 ? (
-        <p className="px-4 pb-6 pt-2 text-center text-[13px] text-faint">Ничего не найдено</p>
+        filter === 'all' ? (
+          <div className="px-2 pb-2">
+            <EmptyState
+              icon={<History size={22} />}
+              title="Пока нет операций"
+              hint="Переходы, регистрации и доход появятся здесь после первой активности"
+            />
+          </div>
+        ) : (
+          <p className="px-4 pb-6 pt-2 text-center text-[13px] text-faint">Ничего не найдено</p>
+        )
       ) : (
         <ul className="mx-2 mb-2 max-h-[420px] flex-1 overflow-y-auto p-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/15 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
           {filtered.map((it) => {

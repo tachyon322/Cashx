@@ -259,6 +259,113 @@ func TestAttributionAndCommission(t *testing.T) {
 	}
 }
 
+// TestActivityKindFilter checks that the activity feed can be filtered by kind
+// on the backend: with 60 clicks crowding out an earning from the global
+// top-50, kind=income must still return the earning (per-tab last-N instead
+// of filtering a globally truncated list).
+func TestActivityKindFilter(t *testing.T) {
+	pool := setup(t)
+	data, apiSrv, _ := fullSetup(t, pool)
+	url := apiSrv.URL + "/api/v1/integrations/events"
+
+	ev := eventBase("user-7", "evt-user-7-reg")
+	ev["type"] = "registration.created"
+	ev["click_token"] = data.ClickToken
+	if resp, _ := sendEvent(t, data.Partner, url, data.KeyID, data.Secret, ev); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("registration: %d", resp.StatusCode)
+	}
+	ev = eventBase("user-7", "evt-user-7-rev")
+	ev["type"] = "revenue.confirmed"
+	ev["external_payment_id"] = "pay-7"
+	ev["amount_kopecks"] = 200000
+	ev["currency"] = "RUB"
+	if resp, _ := sendEvent(t, data.Partner, url, data.KeyID, data.Secret, ev); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("revenue: %d", resp.StatusCode)
+	}
+
+	// 60 clicks newer than the earning: they fill the global top-50 alone.
+	var linkID string
+	if err := pool.QueryRow(t.Context(),
+		`SELECT tl.id FROM tracking_links tl
+		 JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
+		 WHERE a.partner_id = $1 AND a.offer_id = $2 LIMIT 1`,
+		data.PartnerID, data.Offer,
+	).Scan(&linkID); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	if _, err := pool.Exec(t.Context(),
+		`INSERT INTO tracking_clicks (tracking_link_id, created_at)
+		 SELECT $1, now() FROM generate_series(1, 60)`,
+		linkID,
+	); err != nil {
+		t.Fatalf("seed clicks: %v", err)
+	}
+
+	getFeed := func(qs string) []struct {
+		ID   string `json:"id"`
+		Kind string `json:"kind"`
+	} {
+		t.Helper()
+		resp, body := doJSON(t, data.Partner, "GET", apiSrv.URL+"/api/v1/cabinet/activity?offer_id="+data.Offer+qs, nil, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("activity%s: %d %s", qs, resp.StatusCode, body)
+		}
+		var feed struct {
+			Items []struct {
+				ID   string `json:"id"`
+				Kind string `json:"kind"`
+			} `json:"items"`
+		}
+		_ = json.Unmarshal(body, &feed)
+		return feed.Items
+	}
+
+	// Default feed: earning crowded out by the 60 newer clicks.
+	all := getFeed("&limit=50")
+	if len(all) != 50 {
+		t.Fatalf("default feed: want 50 items, got %d", len(all))
+	}
+	for _, it := range all {
+		if it.Kind == "earning" || it.Kind == "payment" {
+			t.Fatalf("default feed should be crowded out, got %+v", it)
+		}
+	}
+
+	// Income tab: the earning (and the payment) must be there.
+	income := getFeed("&limit=50&kind=income")
+	foundEarning, foundPayment := false, false
+	for _, it := range income {
+		switch it.Kind {
+		case "earning":
+			foundEarning = true
+		case "payment":
+			foundPayment = true
+		case "click", "registration":
+			t.Fatalf("income feed must not contain %s", it.Kind)
+		}
+	}
+	if !foundEarning || !foundPayment {
+		t.Fatalf("income feed: want earning+payment, got %+v", income)
+	}
+
+	// Clicks tab: only clicks.
+	clicks := getFeed("&limit=50&kind=clicks")
+	if len(clicks) != 50 {
+		t.Fatalf("clicks feed: want 50, got %d", len(clicks))
+	}
+	for _, it := range clicks {
+		if it.Kind != "click" {
+			t.Fatalf("clicks feed must not contain %s", it.Kind)
+		}
+	}
+
+	// Unknown kind -> 400.
+	resp, body := doJSON(t, data.Partner, "GET", apiSrv.URL+"/api/v1/cabinet/activity?kind=bogus", nil, nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad kind: want 400, got %d %s", resp.StatusCode, body)
+	}
+}
+
 // TestDepositsCountEveryTopUp checks that daily first_payments counts every
 // deposit event (fact of top-up), not first-ever payments per player: two
 // revenue.confirmed from the same user on the same day must give

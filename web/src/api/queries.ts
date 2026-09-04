@@ -480,14 +480,19 @@ export interface ActivityItem {
   occurred_at: string
 }
 
+export type ActivityFeedKind = 'income' | 'signups' | 'clicks'
+
 /** Последние действия пользователей партнёра (лента вместо воронки). */
-export function useRecentActivity(limit = 50, offerId?: string) {
+/** kind фильтрует ленту на бэкенде: каждая вкладка получает свои последние
+ *  N записей своего типа (иначе частые типы вытесняют редкие из общего топ-50). */
+export function useRecentActivity(limit = 50, offerId?: string, kind?: ActivityFeedKind) {
   return useQuery({
-    queryKey: ['recent-activity', limit, offerId ?? ''],
+    queryKey: ['recent-activity', limit, offerId ?? '', kind ?? 'all'],
     queryFn: () =>
       guarded(async () => {
         const qs = new URLSearchParams({ limit: String(limit) })
         if (offerId) qs.set('offer_id', offerId)
+        if (kind) qs.set('kind', kind)
         const res = await fetch(`/api/v1/cabinet/activity?${qs.toString()}`, { credentials: 'include' })
         if (!res.ok) {
           const body = await res.json().catch(() => ({}))
@@ -496,6 +501,7 @@ export function useRecentActivity(limit = 50, offerId?: string) {
         return (await res.json()) as { items: ActivityItem[] }
       }),
     retry: 1,
+    placeholderData: (prev) => prev,
   })
 }
 

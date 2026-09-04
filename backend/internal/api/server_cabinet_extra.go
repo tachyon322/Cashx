@@ -260,8 +260,11 @@ func (s *Server) CabinetAttrib(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, map[string]interface{}{"attributed": ok})
 }
 
-// CabinetActivity handles GET /cabinet/activity?limit= — merged recent
-// activity feed (clicks, registrations, payments, earnings) for the dashboard.
+// CabinetActivity handles GET /cabinet/activity?limit=&offer_id=&kind= — merged
+// recent activity feed (clicks, registrations, payments, earnings) for the
+// dashboard. kind filters the feed on the backend (income|signups|clicks,
+// default all) so per-tab feeds get their own last-N instead of filtering a
+// globally truncated list where frequent kinds crowd out rare ones.
 func (s *Server) CabinetActivity(w http.ResponseWriter, r *http.Request) {
 	partnerID := partnerIDFrom(r)
 	if partnerID == "" {
@@ -274,18 +277,25 @@ func (s *Server) CabinetActivity(w http.ResponseWriter, r *http.Request) {
 			limit = v
 		}
 	}
+	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
+	switch kind {
+	case "", "income", "signups", "clicks":
+	default:
+		respond(w, http.StatusBadRequest, errBody("invalid_kind"))
+		return
+	}
 	offerID := strings.TrimSpace(r.URL.Query().Get("offer_id"))
 	var items []partners.ActivityItem
 	if offerID != "" {
 		var err error
-		items, err = s.Partners.GetOfferActivity(r.Context(), partnerID, offerID, limit)
+		items, err = s.Partners.GetOfferActivity(r.Context(), partnerID, offerID, limit, kind)
 		if err != nil {
 			writeErr(s.Log, w, err)
 			return
 		}
 	} else {
 		var err error
-		items, err = s.Partners.GetRecentActivity(r.Context(), partnerID, limit)
+		items, err = s.Partners.GetRecentActivity(r.Context(), partnerID, limit, kind)
 		if err != nil {
 			writeErr(s.Log, w, err)
 			return
