@@ -55,26 +55,40 @@ export function SourcesCard({ offerId }: { offerId: string }) {
     {
       key: 'name',
       header: 'Источник',
-      render: (row) => (
-        <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#229ED9] text-[10px] font-bold text-white">
-              {(row.name ?? '?').slice(0, 2).toUpperCase()}
-            </span>
-            <span className="truncate font-semibold text-text">{row.name ?? '—'}</span>
-            {row.is_default && <Badge tone="violet">Основной</Badge>}
-          </div>
-          {row.url && (
-            <div className="flex items-center gap-2 pl-8">
-              <span className="min-w-0 truncate font-mono text-[11px] text-violet-bright" title={row.url}>
-                {row.url}
+      render: (row) => {
+        // Промокоды не редиректятся по /c/{code} (игрок вводит код при
+        // регистрации, без клика) — для них показываем только код, а не
+        // мёртвую ссылку. Для link-источников наоборот: ссылка без строки
+        // «Промокод».
+        const isPromo = row.type === 'promo'
+        return (
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#229ED9] text-[10px] font-bold text-white">
+                {(row.name ?? '?').slice(0, 2).toUpperCase()}
               </span>
-              <CopyButton value={row.url} />
+              <span className="truncate font-semibold text-text">{row.name ?? '—'}</span>
+              {row.is_default && <Badge tone="violet">Основной</Badge>}
             </div>
-          )}
-          {row.code && <span className="pl-8 text-[11px] text-faint">Промокод: {row.code}</span>}
-        </div>
-      ),
+            {!isPromo && row.url && (
+              <div className="flex items-center gap-2 pl-8">
+                <span className="min-w-0 truncate font-mono text-[11px] text-violet-bright" title={row.url}>
+                  {row.url}
+                </span>
+                <CopyButton value={row.url} />
+              </div>
+            )}
+            {isPromo && row.code && (
+              <div className="flex items-center gap-2 pl-8">
+                <span className="min-w-0 truncate font-mono text-[11px] text-violet-bright" title={row.code}>
+                  Промокод: {row.code}
+                </span>
+                <CopyButton value={row.code} label="Копировать код" />
+              </div>
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'clicks',

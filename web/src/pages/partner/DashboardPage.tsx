@@ -90,8 +90,9 @@ export function DashboardPage() {
           id: s.id ?? name,
           kind: iconKindFromName(name),
           name,
+          type: s.type ?? 'link',
           url: s.url ?? '',
-          promo: s.code ?? '—',
+          promo: s.code ?? '',
           clicks,
           regs,
           deps,
@@ -320,11 +321,18 @@ export function DashboardPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
+                      {/* Промокоды не редиректятся по /c/{code} — показываем только
+                          код; для link-источников — только ссылку. */}
                       <div className="flex flex-col leading-tight">
-                        <span className="truncate font-mono text-[12px] text-violet-bright" title={row.url}>
-                          {row.url || '—'}
-                        </span>
-                        <span className="text-[11px] text-faint">Промокод: {row.promo}</span>
+                        {row.type === 'promo' ? (
+                          <span className="truncate font-mono text-[12px] text-violet-bright" title={row.promo}>
+                            {row.promo || '—'}
+                          </span>
+                        ) : (
+                          <span className="truncate font-mono text-[12px] text-violet-bright" title={row.url}>
+                            {row.url || '—'}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatNumber(row.clicks)}</td>
@@ -342,12 +350,13 @@ export function DashboardPage() {
                           <BarChart3 size={14} />
                         </button>
                         <button
-                          title="Копировать ссылку"
+                          title={row.type === 'promo' ? 'Копировать промокод' : 'Копировать ссылку'}
                           className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-faint hover:bg-surface-hover hover:text-text"
                           onClick={() => {
-                            if (row.url) {
-                              void navigator.clipboard.writeText(row.url)
-                              toast.success('Ссылка скопирована')
+                            const value = row.type === 'promo' ? row.promo : row.url
+                            if (value) {
+                              void navigator.clipboard.writeText(value)
+                              toast.success(row.type === 'promo' ? 'Промокод скопирован' : 'Ссылка скопирована')
                             }
                           }}
                         >
