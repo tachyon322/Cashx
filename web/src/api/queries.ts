@@ -363,6 +363,84 @@ export function useRedirectPools() {
   })
 }
 
+export interface OfferDomainDto {
+  id: string
+  offer_id: string
+  url: string
+  is_main: boolean
+  is_active: boolean
+  comment?: string | null
+  created_at?: string
+}
+
+async function fetchJson(url: string, init?: RequestInit): Promise<any> {
+  const res = await fetch(url, { credentials: 'include', ...init })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+  }
+  return res.status === 204 ? null : res.json()
+}
+
+/** Домены оффера для партнёра (активные, основной первым) — выбор домена на источнике. */
+export function useOfferDomains(offerId?: string) {
+  return useQuery({
+    queryKey: ['offer-domains', offerId ?? ''],
+    queryFn: () => guarded(() => fetchJson(`/api/v1/cabinet/offers/${offerId}/domains`) as Promise<{ items: OfferDomainDto[] }>),
+    enabled: Boolean(offerId),
+    retry: 1,
+  })
+}
+
+/** Все домены оффера (админ, Каталог). */
+export function useAdminOfferDomains(offerId?: string) {
+  return useQuery({
+    queryKey: ['admin', 'offer-domains', offerId ?? ''],
+    queryFn: () => guarded(() => fetchJson(`/api/v1/admin/offers/${offerId}/domains`) as Promise<{ items: OfferDomainDto[] }>),
+    enabled: Boolean(offerId),
+    retry: 1,
+  })
+}
+
+export function useCreateOfferDomain(offerId: string) {
+  const invalidate = useInvalidate(['admin', 'offer-domains', offerId], ['offer-domains', offerId], ['offer-stats', offerId], ['sources', offerId], ['offers'], ['summary'])
+  return useMutation({
+    mutationFn: (input: { url: string; is_main?: boolean; is_active?: boolean; comment?: string | null }) =>
+      fetchJson(`/api/v1/admin/offers/${offerId}/domains`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: invalidate,
+    onError: handleAuthError,
+  })
+}
+
+export function useUpdateOfferDomain(offerId: string) {
+  const invalidate = useInvalidate(['admin', 'offer-domains', offerId], ['offer-domains', offerId], ['offer-stats', offerId], ['sources', offerId], ['offers'], ['summary'])
+  return useMutation({
+    mutationFn: (input: { id: string; url?: string; is_main?: boolean; is_active?: boolean; comment?: string | null }) => {
+      const { id, ...body } = input
+      return fetchJson(`/api/v1/admin/offers/${offerId}/domains/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    },
+    onSuccess: invalidate,
+    onError: handleAuthError,
+  })
+}
+
+export function useDeleteOfferDomain(offerId: string) {
+  const invalidate = useInvalidate(['admin', 'offer-domains', offerId], ['offer-domains', offerId], ['offer-stats', offerId], ['sources', offerId], ['offers'], ['summary'])
+  return useMutation({
+    mutationFn: (id: string) => fetchJson(`/api/v1/admin/offers/${offerId}/domains/${id}`, { method: 'DELETE' }),
+    onSuccess: invalidate,
+    onError: handleAuthError,
+  })
+}
+
 export function useCabinetAttrib() {
   return useMutation({
     mutationFn: async (input: { ref?: string; click_token?: string }) => {

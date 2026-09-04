@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
-import { useSourceGroups, usePartnerDomains, useRedirectPools } from '../../api/queries'
+import { useSourceGroups, useRedirectPools } from '../../api/queries'
 import { Card } from '../../components/Card'
 import { EmptyState } from '../../components/EmptyState'
 import { Skeleton } from '../../components/Skeleton'
@@ -66,37 +66,6 @@ function GroupsTab() {
   )
 }
 
-function DomainsTab() {
-  const q = usePartnerDomains()
-  if (q.isLoading) return <Skeleton style={{ height: 180 }} />
-  if (q.isError) return <EmptyState title="Не удалось загрузить домены" hint="Домены настраивает администратор" />
-  const items = (q.data?.items ?? []) as any[]
-  if (items.length === 0) return <EmptyState title="Домены не настроены" hint="Администратор ещё не добавил домены" />
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-left text-[13px]">
-        <thead className="border-b border-white/10 text-[10px] uppercase tracking-[0.06em] text-faint">
-          <tr>
-            <th className="px-3 py-2">Домен</th>
-            <th className="px-3 py-2">Активен</th>
-            <th className="px-3 py-2">Комментарий</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/5">
-          {items.map((d) => (
-            <tr key={d.id}>
-              <td className="px-3 py-2 font-mono text-violet-bright">{d.url}</td>
-              <td className="px-3 py-2">{d.is_active ? 'Да' : 'Нет'}</td>
-              <td className="px-3 py-2 text-muted">{d.comment ?? '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="mt-2 text-[11px] text-faint">Домены доступны только для просмотра. Попросите администратора добавить новый.</p>
-    </div>
-  )
-}
-
 function RedirectsTab() {
   const q = useRedirectPools()
   if (q.isLoading) return <Skeleton style={{ height: 180 }} />
@@ -130,12 +99,11 @@ export function SettingsPage() {
   const partner = user?.partner as any
   // is_owner/is_admin may come from backend partner profile; fallback to false if not present
   const canViewPartners = Boolean(partner?.is_owner || partner?.is_admin)
-  const [tab, setTab] = useState<'groups' | 'redirects' | 'domains' | 'partners'>('groups')
+  const [tab, setTab] = useState<'groups' | 'redirects' | 'partners'>('groups')
 
   const tabs: readonly { key: typeof tab; label: string; visible: boolean }[] = [
     { key: 'groups', label: 'Потоки', visible: true },
     { key: 'redirects', label: 'Редиректы', visible: true },
-    { key: 'domains', label: 'Домены', visible: true },
     { key: 'partners', label: 'Партнёры', visible: canViewPartners },
   ]
 
@@ -143,7 +111,7 @@ export function SettingsPage() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="font-display text-[18px] font-bold">Настройки партнёра</h2>
-        <span className="text-[11px] text-faint">Потоки, редиректы и домены</span>
+        <span className="text-[11px] text-faint">Потоки и редиректы</span>
       </div>
 
       <div className="inline-flex self-start rounded-lg border border-[rgba(168,85,247,0.22)] bg-surface-0 p-1">
@@ -163,7 +131,6 @@ export function SettingsPage() {
       <Card neon>
         {tab === 'groups' && <GroupsTab />}
         {tab === 'redirects' && <RedirectsTab />}
-        {tab === 'domains' && <DomainsTab />}
         {tab === 'partners' && (
           <EmptyState title="Команда партнёров" hint="Управление ставками и доступами пока в админке /admin/partners (требует is_owner/is_admin)" />
         )}

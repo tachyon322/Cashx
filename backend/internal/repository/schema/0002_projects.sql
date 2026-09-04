@@ -134,3 +134,17 @@ CREATE INDEX tracking_links_type_idx ON tracking_links(type);
 CREATE INDEX tracking_links_domain_idx ON tracking_links(domain) WHERE domain IS NOT NULL;
 CREATE INDEX tracking_links_redirect_idx ON tracking_links(redirect_id) WHERE redirect_id IS NOT NULL;
 CREATE INDEX tracking_links_legacy_kazik_source_id_idx ON tracking_links(legacy_kazik_source_id) WHERE legacy_kazik_source_id IS NOT NULL;
+
+CREATE TABLE offer_domains (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    offer_id   uuid NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+    url        text NOT NULL,
+    is_main    boolean NOT NULL DEFAULT false,
+    is_active  boolean NOT NULL DEFAULT true,
+    comment    text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT offer_domains_offer_url_unique UNIQUE (offer_id, url)
+);
+CREATE INDEX offer_domains_offer_idx ON offer_domains(offer_id);
+CREATE UNIQUE INDEX offer_domains_one_main ON offer_domains(offer_id) WHERE is_main;

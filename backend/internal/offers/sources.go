@@ -118,7 +118,17 @@ func validateCode(code string) (string, error) {
 	return code, nil
 }
 
-func (s *Service) linkURL(code string) string {
+func (s *Service) linkURL(code, domain, mainDomain string) string {
+	// Домен источника (или основной домен оффера) превращает ссылку в
+	// {домен}/r/{code}: клик идёт через зеркало казика, которое редиректит
+	// на трекер cashxpay.cc/c/{code}. Без доменов — ссылка на трекере.
+	d := strings.TrimSpace(domain)
+	if d == "" {
+		d = strings.TrimSpace(mainDomain)
+	}
+	if d != "" {
+		return strings.TrimSuffix(d, "/") + "/r/" + code
+	}
 	base := s.WebOrigin
 	if base == "" {
 		base = "http://localhost:3000"
@@ -151,7 +161,8 @@ func (s *Service) totalsFor(ctx context.Context, q *repository.Queries, linkID s
 }
 
 // sourceFromRow converts a listed link row (with joined group name) to Source.
-func (s *Service) sourceFromRow(ctx context.Context, q *repository.Queries, r repository.ListTrackingLinksByAccessIDRow) (Source, error) {
+// mainDomain is the offer's active main domain used when the source has none.
+func (s *Service) sourceFromRow(ctx context.Context, q *repository.Queries, r repository.ListTrackingLinksByAccessIDRow, mainDomain string) (Source, error) {
 	groupID := repository.UUIDToPtr(r.GroupID)
 	groupName := repository.TextToPtr(r.GroupName)
 	comment := repository.TextToPtr(r.Comment)
@@ -176,10 +187,17 @@ func (s *Service) sourceFromRow(ctx context.Context, q *repository.Queries, r re
 	return Source{
 		ID: r.ID, Code: r.Code, Name: r.Name, Comment: comment,
 		GroupID: groupID, GroupName: groupName, IsDefault: r.IsDefault, IsActive: r.IsActive,
-		URL: s.linkURL(r.Code), Type: r.Type, RegistrationBonus: bonus, Domain: domain, RedirectID: redirectID,
+		URL: s.linkURL(r.Code, domainDeref(domain), mainDomain), Type: r.Type, RegistrationBonus: bonus, Domain: domain, RedirectID: redirectID,
 		Totals: all, Totals30d: last30,
 		CreatedAt: r.CreatedAt.Time.UTC().Format(time.RFC3339),
 	}, nil
+}
+
+func domainDeref(d *string) string {
+	if d == nil {
+		return ""
+	}
+	return *d
 }
 
 // ListSources returns all sources (tracking links) for a partner's offer with
@@ -194,9 +212,10 @@ func (s *Service) ListSources(ctx context.Context, partnerID, offerID string) ([
 	if err != nil {
 		return nil, err
 	}
+	mainDomain, _ := s.MainOfferDomain(ctx, offerID)
 	out := make([]Source, 0, len(rows))
 	for _, r := range rows {
-		src, err := s.sourceFromRow(ctx, q, r)
+		src, err := s.sourceFromRow(ctx, q, r, mainDomain)
 		if err != nil {
 			return nil, err
 		}
@@ -261,7 +280,7 @@ func (s *Service) CreateSource(ctx context.Context, partnerID, offerID, name str
 		}
 		return Source{}, err
 	}
-	return s.sourceByID(ctx, q, link.ID)
+	return s.sourceByID(ctx, q, offerID, link.ID)
 }
 
 // UpdateSource mutates an existing source. code == nil/"" keeps the current code.
@@ -327,7 +346,7 @@ func (s *Service) UpdateSource(ctx context.Context, partnerID, offerID, sourceID
 		}
 		return Source{}, err
 	}
-	return s.sourceByID(ctx, q, link.ID)
+	return s.sourceByID(ctx, q, offerID, link.ID)
 }
 
 // DeleteSource removes a source. Sources with clicks cannot be removed — use
@@ -356,14 +375,15 @@ func (s *Service) DeleteSource(ctx context.Context, partnerID, offerID, sourceID
 }
 
 // sourceByID loads a full Source (with totals) after create/update.
-func (s *Service) sourceByID(ctx context.Context, q *repository.Queries, id string) (Source, error) {
+func (s *Service) sourceByID(ctx context.Context, q *repository.Queries, offerID, id string) (Source, error) {
 	row, err := q.ListTrackingLinksByAccessID(ctx, s.linkAccessID(ctx, q, id))
 	if err != nil {
 		return Source{}, err
 	}
+	mainDomain, _ := s.MainOfferDomain(ctx, offerID)
 	for _, r := range row {
 		if r.ID == id {
-			return s.sourceFromRow(ctx, q, r)
+			return s.sourceFromRow(ctx, q, r, mainDomain)
 		}
 	}
 	return Source{}, fmt.Errorf("%w: source_not_found", platform.ErrNotFound)

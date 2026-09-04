@@ -1,15 +1,19 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ExternalLink, Pencil, Plus } from 'lucide-react'
+import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '../../auth/AuthContext'
 import {
   useAdminOfferCreate,
   useAdminOffers,
   useAdminOfferUpdate,
+  useAdminOfferDomains,
   useAdminProjectCreate,
   useAdminProjects,
   useAdminProjectUpdate,
+  useCreateOfferDomain,
+  useDeleteOfferDomain,
+  useUpdateOfferDomain,
 } from '../../api/queries'
 import type { components } from '../../api/schema'
 import { Badge } from '../../components/Badge'
@@ -567,6 +571,7 @@ export function OffersAdminPage() {
               onChange={(event) => setOffer('description', event.target.value)}
             />
           </Field>
+          {offerModal.kind === 'edit' && <OfferDomainsSection offerId={offerModal.id} />}
           <div className={MODAL_ACTIONS_CLASSES}>
             <Button variant="secondary" onClick={closeOfferModal}>
               Отмена
@@ -577,6 +582,143 @@ export function OffersAdminPage() {
           </div>
         </form>
       </Modal>
+    </div>
+  )
+}
+
+/* --- Домены оффера: один основной + запасные зеркала --- */
+
+function OfferDomainsSection({ offerId }: { offerId: string }) {
+  const toast = useToast()
+  const domainsQuery = useAdminOfferDomains(offerId)
+  const createDomain = useCreateOfferDomain(offerId)
+  const updateDomain = useUpdateOfferDomain(offerId)
+  const deleteDomain = useDeleteOfferDomain(offerId)
+
+  const [url, setUrl] = useState('')
+  const [isMain, setIsMain] = useState(false)
+
+  const items = domainsQuery.data?.items ?? []
+  const busy = createDomain.isPending || updateDomain.isPending || deleteDomain.isPending
+
+  const addDomain = async () => {
+    const trimmed = url.trim()
+    if (!trimmed) {
+      toast.error('Укажите домен, например https://litgmplay.fun')
+      return
+    }
+    try {
+      // Первый домен оффера автоматически становится основным.
+      await createDomain.mutateAsync({ url: trimmed, is_main: isMain || items.length === 0 })
+      setUrl('')
+      setIsMain(false)
+      toast.success('Домен добавлен')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Не удалось добавить домен')
+    }
+  }
+
+  const makeMain = async (id: string) => {
+    try {
+      await updateDomain.mutateAsync({ id, is_main: true, is_active: true })
+      toast.success('Основной домен обновлён')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Не удалось назначить основной домен')
+    }
+  }
+
+  const toggleActive = async (id: string, is_active: boolean) => {
+    try {
+      await updateDomain.mutateAsync({ id, is_active })
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Не удалось изменить домен')
+    }
+  }
+
+  const removeDomain = async (id: string) => {
+    try {
+      await deleteDomain.mutateAsync(id)
+      toast.success('Домен удалён')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Не удалось удалить домен')
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface-0 p-3.5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-[12px] font-bold uppercase tracking-[0.08em] text-faint">Домены оффера</span>
+        <span className="text-[11px] text-faint">
+          Основной — адрес ссылок по умолчанию и посадка кликов; запасные — на случай блокировки
+        </span>
+      </div>
+
+      {items.length === 0 ? (
+        <p className="py-1.5 text-[12.5px] text-faint">Доменов пока нет — ссылки строятся на трекере CashX</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {items.map((d) => (
+            <div key={d.id} className="flex items-center gap-2.5 rounded-md border border-border bg-surface-1 px-3 py-2">
+              <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-violet-bright" title={d.url}>
+                {d.url}
+              </span>
+              {d.is_main ? (
+                <Badge tone="violet" className="shrink-0 text-[10px]">Основной</Badge>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void makeMain(d.id)}
+                  className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10.5px] font-semibold text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-50"
+                >
+                  Сделать основным
+                </button>
+              )}
+              <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11.5px] text-muted">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-violet"
+                  checked={d.is_active}
+                  disabled={busy}
+                  onChange={(event) => void toggleActive(d.id, event.target.checked)}
+                />
+                активен
+              </label>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void removeDomain(d.id)}
+                className="shrink-0 rounded-md px-1.5 py-1 text-[12px] text-muted transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+                aria-label="Удалить домен"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 pt-0.5">
+        <Input
+          placeholder="https://litgmplay.fun"
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          className="flex-1"
+        />
+        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11.5px] text-muted">
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 accent-violet"
+            checked={isMain}
+            onChange={(event) => setIsMain(event.target.checked)}
+          />
+          основной
+        </label>
+        <Button type="button" size="sm" loading={createDomain.isPending} onClick={() => void addDomain()}>
+          <Plus size={13} />
+          Добавить
+        </Button>
+      </div>
     </div>
   )
 }

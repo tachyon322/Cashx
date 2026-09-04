@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { components } from '../api/schema'
-import { useCreateSource, useUpdateSource, useCabinetConfig, useRedirectPools } from '../api/queries'
+import { useCreateSource, useUpdateSource, useOfferDomains, useRedirectPools } from '../api/queries'
 import { Button } from './Button'
 import { Field } from './Field'
 import { Input } from './Input'
@@ -26,7 +26,7 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
   const toast = useToast()
   const create = useCreateSource(offerId)
   const update = useUpdateSource(offerId)
-  const configQ = useCabinetConfig()
+  const domainsQ = useOfferDomains(offerId)
   const redirectsQ = useRedirectPools()
 
   const [name, setName] = useState('')
@@ -40,8 +40,9 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
   const [domain, setDomain] = useState('')
   const [redirectId, setRedirectId] = useState('')
 
-  const domains = configQ.data?.domains ?? []
+  const domains = domainsQ.data?.items ?? []
   const redirectPools = redirectsQ.data?.items ?? []
+  const mainDomain = domains.find((d) => d.is_main)
 
   useEffect(() => {
     if (!open) return
@@ -172,12 +173,18 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
         ) : (
           <>
             {domains.length > 0 && (
-              <Field label="Домен">
+              <Field
+                label="Домен"
+                hint="Адрес ссылки и посадка клика. По умолчанию — основной домен оффера."
+              >
                 <Select value={domain} onChange={(e) => setDomain(e.target.value)}>
-                  <option value="">Авто (дефолтный)</option>
+                  <option value="">
+                    Авто ({mainDomain ? mainDomain.url : 'основной домен оффера'})
+                  </option>
                   {domains.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
+                    <option key={d.id} value={d.url}>
+                      {d.url}
+                      {d.is_main ? ' — основной' : ' — запасной'}
                     </option>
                   ))}
                 </Select>

@@ -138,6 +138,16 @@ func (s *Server) CabinetOfferSourceUpdate(w http.ResponseWriter, r *http.Request
 			writeErr(s.Log, w, err)
 			return
 		}
+		// Validate the domain against the offer's active domains (the raw update
+		// below would otherwise store an arbitrary value).
+		if body.Domain != nil && *body.Domain != "" {
+			norm, derr := s.Offers.ValidateSourceDomain(r.Context(), offerId, *body.Domain)
+			if derr != nil {
+				writeErr(s.Log, w, derr)
+				return
+			}
+			body.Domain = norm
+		}
 		// Best-effort: update extended fields directly if provided
 		if body.RegistrationBonus != nil {
 			_, _ = s.Pool.Exec(r.Context(), `UPDATE tracking_links SET registration_bonus=$1 WHERE id=$2`, *body.RegistrationBonus, sourceId)

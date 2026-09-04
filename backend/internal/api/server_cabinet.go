@@ -581,11 +581,11 @@ func (s *Server) offerStats(ctx context.Context, partnerID, offerID string) (off
 
 	// Personal tracking link (default source), always available for a joined offer.
 	if link, err := s.Q.GetDefaultTrackingLinkByAccessID(ctx, access.ID); err == nil {
-		base := s.Cfg.WebOrigin
-		if base == "" {
-			base = "http://localhost:3000"
+		domain := ""
+		if link.Domain.Valid {
+			domain = link.Domain.String
 		}
-		resp.TrackingURL = base + "/c/" + link.Code
+		resp.TrackingURL = s.Offers.LinkURL(ctx, offerID, domain, link.Code)
 	}
 	resp.Summary.Today = agg(tracking.Today())
 	resp.Summary.Week = agg(tracking.LastDays(7))

@@ -24,12 +24,14 @@ type Querier interface {
 	AggUniqueClicksByLink(ctx context.Context, arg AggUniqueClicksByLinkParams) ([]AggUniqueClicksByLinkRow, error)
 	ClaimOutboxMessages(ctx context.Context, limit int32) ([]OutboxMessage, error)
 	ClearDefaultTrackingLinks(ctx context.Context, partnerOfferAccessID string) error
+	ClearMainOfferDomain(ctx context.Context, offerID string) error
 	ConsumeReserve(ctx context.Context, arg ConsumeReserveParams) (ConsumeReserveRow, error)
 	CountActiveLinksByAccess(ctx context.Context, partnerOfferAccessID string) (int64, error)
 	CountAuditLog(ctx context.Context, arg CountAuditLogParams) (int64, error)
 	CountClicksByLink(ctx context.Context, trackingLinkID string) (int64, error)
 	CountEarningsAdmin(ctx context.Context, arg CountEarningsAdminParams) (int64, error)
 	CountLedgerAdmin(ctx context.Context, arg CountLedgerAdminParams) (int64, error)
+	CountOfferDomains(ctx context.Context, offerID string) (int64, error)
 	CountOfferTerms(ctx context.Context, offerID string) (int64, error)
 	CountOffers(ctx context.Context, dollar_1 interface{}) (int64, error)
 	CountPartnerProfilesAdmin(ctx context.Context, arg CountPartnerProfilesAdminParams) (int64, error)
@@ -44,6 +46,7 @@ type Querier interface {
 	CreateAttribution(ctx context.Context, arg CreateAttributionParams) (ExternalUserAttribution, error)
 	CreateIntegrationKey(ctx context.Context, arg CreateIntegrationKeyParams) (CreateIntegrationKeyRow, error)
 	CreateOffer(ctx context.Context, arg CreateOfferParams) (CreateOfferRow, error)
+	CreateOfferDomain(ctx context.Context, arg CreateOfferDomainParams) (OfferDomain, error)
 	CreateOfferTerms(ctx context.Context, arg CreateOfferTermsParams) (OfferTermsVersion, error)
 	CreatePartnerAccess(ctx context.Context, arg CreatePartnerAccessParams) (PartnerOfferAccess, error)
 	CreatePartnerDomain(ctx context.Context, arg CreatePartnerDomainParams) (PartnerDomain, error)
@@ -64,6 +67,7 @@ type Querier interface {
 	DecideWithdrawal(ctx context.Context, arg DecideWithdrawalParams) (WithdrawalRequest, error)
 	DeleteDailyLinkStatsFrom(ctx context.Context, day pgtype.Date) error
 	DeleteDailyStatsFrom(ctx context.Context, day pgtype.Date) error
+	DeleteOfferDomain(ctx context.Context, id string) error
 	DeletePartnerDomain(ctx context.Context, id string) error
 	DeleteRedirectPool(ctx context.Context, id string) error
 	DeleteRedirectPoolURL(ctx context.Context, arg DeleteRedirectPoolURLParams) error
@@ -84,7 +88,10 @@ type Querier interface {
 	GetEarningByConversion(ctx context.Context, conversionEventID int64) (CommissionEarning, error)
 	GetIncomingEvent(ctx context.Context, arg GetIncomingEventParams) (GetIncomingEventRow, error)
 	GetIntegrationKeyByKeyID(ctx context.Context, keyID string) (IntegrationKey, error)
+	GetMainOfferDomain(ctx context.Context, offerID string) (OfferDomain, error)
 	GetOfferByID(ctx context.Context, id string) (GetOfferByIDRow, error)
+	GetOfferDomainByID(ctx context.Context, id string) (OfferDomain, error)
+	GetOfferDomainByOfferAndID(ctx context.Context, arg GetOfferDomainByOfferAndIDParams) (OfferDomain, error)
 	GetOfferWithProject(ctx context.Context, id string) (GetOfferWithProjectRow, error)
 	GetPartnerAccess(ctx context.Context, arg GetPartnerAccessParams) (PartnerOfferAccess, error)
 	GetPartnerDomainByID(ctx context.Context, id string) (PartnerDomain, error)
@@ -138,6 +145,7 @@ type Querier interface {
 	InsertUserNotification(ctx context.Context, arg InsertUserNotificationParams) error
 	InsertWithdrawalRequest(ctx context.Context, arg InsertWithdrawalRequestParams) (WithdrawalRequest, error)
 	ListAccessRatesAll(ctx context.Context) ([]ListAccessRatesAllRow, error)
+	ListActiveOfferDomains(ctx context.Context, offerID string) ([]OfferDomain, error)
 	ListActivePartnerDomains(ctx context.Context) ([]PartnerDomain, error)
 	ListAllActiveAccesses(ctx context.Context) ([]ListAllActiveAccessesRow, error)
 	ListAnnouncementAudiencePartnerIDs(ctx context.Context, announcementID string) ([]pgtype.UUID, error)
@@ -148,6 +156,7 @@ type Querier interface {
 	ListIntegrationKeysByProject(ctx context.Context, projectID string) ([]ListIntegrationKeysByProjectRow, error)
 	ListLedgerAdmin(ctx context.Context, arg ListLedgerAdminParams) ([]ListLedgerAdminRow, error)
 	ListLedgerByWallet(ctx context.Context, arg ListLedgerByWalletParams) ([]WalletLedgerEntry, error)
+	ListOfferDomains(ctx context.Context, offerID string) ([]OfferDomain, error)
 	ListOffers(ctx context.Context, arg ListOffersParams) ([]ListOffersRow, error)
 	ListOffersByProject(ctx context.Context, projectID string) ([]ListOffersByProjectRow, error)
 	ListPartnerAccesses(ctx context.Context, partnerID string) ([]PartnerOfferAccess, error)
@@ -180,6 +189,7 @@ type Querier interface {
 	ReverseReward(ctx context.Context, id string) (ReferralReward, error)
 	SearchTrackingLinks(ctx context.Context, arg SearchTrackingLinksParams) ([]TrackingLink, error)
 	SetDefaultTrackingLink(ctx context.Context, id string) error
+	SetOfferDomainMain(ctx context.Context, arg SetOfferDomainMainParams) error
 	SetPartnerRevShare(ctx context.Context, arg SetPartnerRevShareParams) error
 	SetPlatformSetting(ctx context.Context, arg SetPlatformSettingParams) (PlatformSetting, error)
 	SoftDeleteAnnouncement(ctx context.Context, id string) error
@@ -196,6 +206,7 @@ type Querier interface {
 	UpdateAnnouncement(ctx context.Context, arg UpdateAnnouncementParams) (Announcement, error)
 	UpdateConversionNote(ctx context.Context, arg UpdateConversionNoteParams) error
 	UpdateOffer(ctx context.Context, arg UpdateOfferParams) (UpdateOfferRow, error)
+	UpdateOfferDomain(ctx context.Context, arg UpdateOfferDomainParams) (OfferDomain, error)
 	UpdatePartnerAccessRate(ctx context.Context, arg UpdatePartnerAccessRateParams) (PartnerOfferAccess, error)
 	UpdatePartnerDomain(ctx context.Context, arg UpdatePartnerDomainParams) (PartnerDomain, error)
 	UpdatePartnerProfile(ctx context.Context, arg UpdatePartnerProfileParams) (PartnerProfile, error)

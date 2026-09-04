@@ -177,6 +177,17 @@ type Offer struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type OfferDomain struct {
+	ID        string             `json:"id"`
+	OfferID   string             `json:"offer_id"`
+	Url       string             `json:"url"`
+	IsMain    bool               `json:"is_main"`
+	IsActive  bool               `json:"is_active"`
+	Comment   pgtype.Text        `json:"comment"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type OfferTermsVersion struct {
 	ID            string             `json:"id"`
 	OfferID       string             `json:"offer_id"`

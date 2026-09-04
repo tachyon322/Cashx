@@ -97,6 +97,11 @@ func RecordClick(ctx context.Context, pool *pgxpool.Pool, code, ip, userAgent, r
 			dest = weightedPick(urls)
 		}
 	}
+	// Domain chosen on the source (or its mirror): the player lands on the
+	// mirror itself — but only while it is still an active domain of the offer.
+	if dest == "" && link.Domain.Valid && link.Domain.String != "" && link.DomainActive.Valid && link.DomainActive.Bool {
+		dest = link.Domain.String
+	}
 	if dest == "" && link.OfferDestinationUrl.Valid {
 		dest = link.OfferDestinationUrl.String
 	}

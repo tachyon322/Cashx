@@ -83,7 +83,11 @@ RETURNING *;
 SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.is_active, tl.type, tl.domain, tl.redirect_id, tl.registration_bonus, tl.created_at,
        a.partner_id, a.offer_id, a.status AS access_status,
        o.destination_url AS offer_destination_url,
-       p.destination_url AS project_destination_url
+       p.destination_url AS project_destination_url,
+       (tl.domain IS NOT NULL AND EXISTS (
+           SELECT 1 FROM offer_domains od
+           WHERE od.offer_id = a.offer_id AND od.url = tl.domain AND od.is_active
+       )) AS domain_active
 FROM tracking_links tl
 JOIN partner_offer_accesses a ON a.id = tl.partner_offer_access_id
 JOIN offers o ON o.id = a.offer_id

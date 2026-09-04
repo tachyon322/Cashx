@@ -120,31 +120,6 @@ func (s *Service) DefaultDomain(ctx context.Context) (string, error) {
 	return rows[0].Url, nil
 }
 
-// resolveSourceDomain validates and normalizes a per-source domain.
-// For promo type it always returns nil (no domain).
-func (s *Service) resolveSourceDomain(ctx context.Context, raw *string, typ string) (*string, error) {
-	if typ == "promo" {
-		return nil, nil
-	}
-	if raw == nil || strings.TrimSpace(*raw) == "" {
-		return nil, nil
-	}
-	norm, err := normalizeDomainURL(*raw)
-	if err != nil {
-		return nil, err
-	}
-	allowed, err := s.AllowedDomains(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, a := range allowed {
-		if a == norm {
-			return &norm, nil
-		}
-	}
-	return nil, fmt.Errorf("%w: domain_not_allowed", platform.ErrValidation)
-}
-
 // ListDomains returns all domains (admin).
 func (s *Service) ListDomains(ctx context.Context) ([]repository.PartnerDomain, error) {
 	return s.q(ctx).ListPartnerDomains(ctx)

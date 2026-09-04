@@ -99,7 +99,7 @@ func (s *Service) createSourceWithType(ctx context.Context, partnerID, offerID, 
 	// Domain validation
 	var domainVal *string
 	if typ != "promo" && domain != nil {
-		if domainVal, err = s.resolveSourceDomain(ctx, domain, typ); err != nil {
+		if domainVal, err = s.resolveSourceDomainForOffer(ctx, offerID, domain, typ); err != nil {
 			return Source{}, err
 		}
 	}
@@ -169,7 +169,7 @@ func (s *Service) createSourceWithType(ctx context.Context, partnerID, offerID, 
 		}
 		return Source{}, err
 	}
-	return s.sourceByID(ctx, q, link.ID)
+	return s.sourceByID(ctx, q, offerID, link.ID)
 }
 
 func bonusValToIntPtr(v *int32) *int {

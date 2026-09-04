@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -120,7 +121,7 @@ func (s *Service) GetSummary(ctx context.Context, partnerID string) (Summary, er
 		}
 		url := ""
 		if err == nil {
-			url = s.trackingURL(link.Code)
+			url = s.trackingURLForOffer(ctx, q, a.OfferID, link)
 		}
 		out.ActiveOffers = append(out.ActiveOffers, ActiveOffer{
 			OfferID: a.OfferID, Name: a.OfferName, RateBps: int(a.RateBps),
@@ -186,7 +187,7 @@ func (s *Service) ListOffers(ctx context.Context, partnerID string) ([]OfferList
 			rate := int(a.RateBps)
 			item.MyRateBps = &rate
 			if link, err := q.GetDefaultTrackingLinkByAccessID(ctx, a.ID); err == nil {
-				url := s.trackingURL(link.Code)
+				url := s.trackingURLForOffer(ctx, q, r.ID, link)
 				item.MyTrackingURL = &url
 			}
 			t, err := tracking.TotalsOffer(ctx, q, partnerID, r.ID, period)
@@ -378,12 +379,27 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, name *string
 	return err
 }
 
-func (s *Service) trackingURL(code string) string {
+// trackingURLForOffer builds the tracking URL for a default link: the link's
+// own domain, else the offer's active main domain, else the CashX tracker
+// origin. {domain}/r/{code} mirrors redirect to the tracker and back.
+func (s *Service) trackingURLForOffer(ctx context.Context, q *repository.Queries, offerID string, link repository.TrackingLink) string {
+	domain := ""
+	if link.Domain.Valid {
+		domain = link.Domain.String
+	}
+	if domain == "" {
+		if main, err := q.GetMainOfferDomain(ctx, offerID); err == nil {
+			domain = main.Url
+		}
+	}
+	if domain != "" {
+		return strings.TrimSuffix(domain, "/") + "/r/" + link.Code
+	}
 	base := s.WebOrigin
 	if base == "" {
 		base = "http://localhost:3000"
 	}
-	return base + "/c/" + code
+	return base + "/c/" + link.Code
 }
 
 // Notify is a thin wrapper for notifications used by admin flows.

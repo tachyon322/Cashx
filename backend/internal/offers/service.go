@@ -279,11 +279,7 @@ func (s *Service) Join(ctx context.Context, partnerID, offerID string) (rateBps 
 		}
 		return 0, "", err
 	}
-	base := s.WebOrigin
-	if base == "" {
-		base = "http://localhost:3000"
-	}
-	return int(profile.RevsharePercentBps), base + "/c/" + link.Code, nil
+	return int(profile.RevsharePercentBps), s.LinkURL(ctx, offerID, "", link.Code), nil
 }
 
 func genLinkCode(ctx context.Context, q *repository.Queries) (string, error) {
