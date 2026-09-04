@@ -126,6 +126,10 @@ type Querier interface {
 	GetWalletByID(ctx context.Context, id string) (GetWalletByIDRow, error)
 	GetWalletByPartnerID(ctx context.Context, partnerID string) (GetWalletByPartnerIDRow, error)
 	GetWithdrawalRequest(ctx context.Context, id string) (WithdrawalRequest, error)
+	// a.tracking_link_id populated by 00022/00025 backfill and set on every
+	// insert path; filtering on it directly lets Postgres use
+	// attributions_link_firstseen_idx (the old COALESCE(click subquery) form
+	// forced a full scan of external_user_attributions).
 	HistoryAttributionsByLink(ctx context.Context, arg HistoryAttributionsByLinkParams) ([]HistoryAttributionsByLinkRow, error)
 	// Cabinet offer history pieces.
 	HistoryClicksByLink(ctx context.Context, arg HistoryClicksByLinkParams) ([]HistoryClicksByLinkRow, error)
@@ -152,10 +156,17 @@ type Querier interface {
 	ListAnnouncements(ctx context.Context) ([]Announcement, error)
 	ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]ListAuditLogRow, error)
 	ListConversionsByAttribution(ctx context.Context, attributionID int64) ([]ConversionEvent, error)
+	// Default link per access for all of the partner's accesses (same
+	// is_default DESC, created_at preference as GetDefaultTrackingLinkByAccessID)
+	// in a single query, instead of one query per offer in Summary/ListOffers.
+	ListDefaultTrackingLinksByPartner(ctx context.Context, partnerID string) ([]TrackingLink, error)
 	ListEarningsAdmin(ctx context.Context, arg ListEarningsAdminParams) ([]CommissionEarning, error)
 	ListIntegrationKeysByProject(ctx context.Context, projectID string) ([]ListIntegrationKeysByProjectRow, error)
 	ListLedgerAdmin(ctx context.Context, arg ListLedgerAdminParams) ([]ListLedgerAdminRow, error)
 	ListLedgerByWallet(ctx context.Context, arg ListLedgerByWalletParams) ([]WalletLedgerEntry, error)
+	// Active main domain per offer for a set of offers (batched form of
+	// GetMainOfferDomain, used instead of one query per offer in Summary/ListOffers).
+	ListMainOfferDomainsByOffers(ctx context.Context, dollar_1 []string) ([]OfferDomain, error)
 	ListOfferDomains(ctx context.Context, offerID string) ([]OfferDomain, error)
 	ListOffers(ctx context.Context, arg ListOffersParams) ([]ListOffersRow, error)
 	ListOffersByProject(ctx context.Context, projectID string) ([]ListOffersByProjectRow, error)
@@ -166,10 +177,19 @@ type Querier interface {
 	ListProjects(ctx context.Context, arg ListProjectsParams) ([]ListProjectsRow, error)
 	ListRedirectPoolURLs(ctx context.Context, redirectID string) ([]RedirectPoolUrl, error)
 	ListRedirectPools(ctx context.Context) ([]RedirectPool, error)
-	ListReferralsByReferrer(ctx context.Context, referrerPartnerID string) ([]ListReferralsByReferrerRow, error)
+	// Referrals of a partner with per-invited reward totals in a single round
+	// trip. Replaces the per-referral SumRewardsByInvited loop. The correlated
+	// sum uses the partial covering index referral_rewards_invited_idx
+	// (migration 00026): an index-only scan per invited partner, no heap
+	// access and no sort of the joined rewards.
+	ListReferralsByReferrerWithRewards(ctx context.Context, referrerPartnerID string) ([]ListReferralsByReferrerWithRewardsRow, error)
 	ListSourceGroupsByPartner(ctx context.Context, partnerID string) ([]SourceGroup, error)
 	ListTrackingLinksByAccessID(ctx context.Context, partnerOfferAccessID string) ([]ListTrackingLinksByAccessIDRow, error)
 	ListTrackingLinksByPartner(ctx context.Context, arg ListTrackingLinksByPartnerParams) ([]TrackingLink, error)
+	// All tracking links of a partner across every offer they have access to,
+	// with the offer id and group name. Backs GET /cabinet/sources (dashboard
+	// needs all sources in one round trip instead of one request per offer).
+	ListTrackingLinksByPartnerWithOffer(ctx context.Context, partnerID string) ([]ListTrackingLinksByPartnerWithOfferRow, error)
 	ListUserNotifications(ctx context.Context, arg ListUserNotificationsParams) ([]UserNotification, error)
 	ListVisibleAnnouncements(ctx context.Context) ([]Announcement, error)
 	ListWithdrawalsAdmin(ctx context.Context, arg ListWithdrawalsAdminParams) ([]ListWithdrawalsAdminRow, error)
@@ -195,11 +215,18 @@ type Querier interface {
 	SoftDeleteAnnouncement(ctx context.Context, id string) error
 	SumDailyLinkStats(ctx context.Context, arg SumDailyLinkStatsParams) (SumDailyLinkStatsRow, error)
 	SumDailyLinkStatsAllTime(ctx context.Context, trackingLinkID string) (SumDailyLinkStatsAllTimeRow, error)
+	// Batched per-source totals (all-time + windowed) for a set of links: one
+	// index scan per link instead of two queries per link (N+1) in ListSources.
+	// day_from is inclusive (start of the 30d window); rows before it count only
+	// towards the all-time columns.
+	SumDailyLinkStatsByLinks(ctx context.Context, arg SumDailyLinkStatsByLinksParams) ([]SumDailyLinkStatsByLinksRow, error)
 	SumDailyStats(ctx context.Context, arg SumDailyStatsParams) (SumDailyStatsRow, error)
 	SumDailyStatsAllTime(ctx context.Context, partnerID string) (SumDailyStatsAllTimeRow, error)
 	SumDailyStatsByOffer(ctx context.Context, arg SumDailyStatsByOfferParams) (SumDailyStatsByOfferRow, error)
+	// Per-offer totals for one partner over a period (used instead of a
+	// per-offer loop in ListOffers / Summary).
+	SumDailyStatsGroupedByOffer(ctx context.Context, arg SumDailyStatsGroupedByOfferParams) ([]SumDailyStatsGroupedByOfferRow, error)
 	SumDailyStatsOfferAllTime(ctx context.Context, arg SumDailyStatsOfferAllTimeParams) (SumDailyStatsOfferAllTimeRow, error)
-	SumRewardsByInvited(ctx context.Context, invitedPartnerID string) (int64, error)
 	SumRewardsByReferrer(ctx context.Context, referrerPartnerID string) (int64, error)
 	TouchIntegrationKey(ctx context.Context, keyID string) error
 	UpdateAllAccessRatesByPartner(ctx context.Context, arg UpdateAllAccessRatesByPartnerParams) error

@@ -456,9 +456,12 @@ func (q *Queries) ListPartnerProfilesAdmin(ctx context.Context, arg ListPartnerP
 	return items, nil
 }
 
-const listReferralsByReferrer = `-- name: ListReferralsByReferrer :many
+const listReferralsByReferrerWithRewards = `-- name: ListReferralsByReferrerWithRewards :many
 SELECT r.id, r.referrer_partner_id, r.invited_partner_id, r.referral_rate_bps, r.created_at,
-       u.name, u.email
+       u.name, u.email,
+       COALESCE((SELECT sum(rr.amount_kopecks) FROM referral_rewards rr
+                 WHERE rr.invited_partner_id = r.invited_partner_id
+                   AND rr.reversed_at IS NULL), 0)::bigint AS reward_kopecks
 FROM partner_referrals r
 JOIN partner_profiles p ON p.id = r.invited_partner_id
 JOIN users u ON u.id = p.user_id
@@ -466,7 +469,7 @@ WHERE r.referrer_partner_id = $1
 ORDER BY r.created_at DESC
 `
 
-type ListReferralsByReferrerRow struct {
+type ListReferralsByReferrerWithRewardsRow struct {
 	ID                string             `json:"id"`
 	ReferrerPartnerID string             `json:"referrer_partner_id"`
 	InvitedPartnerID  string             `json:"invited_partner_id"`
@@ -474,17 +477,23 @@ type ListReferralsByReferrerRow struct {
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	Name              string             `json:"name"`
 	Email             string             `json:"email"`
+	RewardKopecks     int64              `json:"reward_kopecks"`
 }
 
-func (q *Queries) ListReferralsByReferrer(ctx context.Context, referrerPartnerID string) ([]ListReferralsByReferrerRow, error) {
-	rows, err := q.db.Query(ctx, listReferralsByReferrer, referrerPartnerID)
+// Referrals of a partner with per-invited reward totals in a single round
+// trip. Replaces the per-referral SumRewardsByInvited loop. The correlated
+// sum uses the partial covering index referral_rewards_invited_idx
+// (migration 00026): an index-only scan per invited partner, no heap
+// access and no sort of the joined rewards.
+func (q *Queries) ListReferralsByReferrerWithRewards(ctx context.Context, referrerPartnerID string) ([]ListReferralsByReferrerWithRewardsRow, error) {
+	rows, err := q.db.Query(ctx, listReferralsByReferrerWithRewards, referrerPartnerID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListReferralsByReferrerRow
+	var items []ListReferralsByReferrerWithRewardsRow
 	for rows.Next() {
-		var i ListReferralsByReferrerRow
+		var i ListReferralsByReferrerWithRewardsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ReferrerPartnerID,
@@ -493,6 +502,7 @@ func (q *Queries) ListReferralsByReferrer(ctx context.Context, referrerPartnerID
 			&i.CreatedAt,
 			&i.Name,
 			&i.Email,
+			&i.RewardKopecks,
 		); err != nil {
 			return nil, err
 		}

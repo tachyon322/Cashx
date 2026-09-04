@@ -152,3 +152,54 @@ func TestSourcesCRUD(t *testing.T) {
 		t.Fatalf("deactivate last source: want 409 last_source, got %d %s", resp.StatusCode, body)
 	}
 }
+
+// TestAllSourcesList checks GET /cabinet/sources: every link of the partner
+// across offers in one response, with per-source totals and the offer id.
+func TestAllSourcesList(t *testing.T) {
+	pool := setup(t)
+	data, apiSrv, _ := fullSetup(t, pool)
+	base := apiSrv.URL + "/api/v1/cabinet"
+
+	// Create a second source on the joined offer.
+	resp, body := doJSON(t, data.Partner, "POST", base+"/offers/"+data.Offer+"/sources", map[string]any{
+		"name": "Extra", "code": "EXTRA",
+	}, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create source: %d %s", resp.StatusCode, body)
+	}
+
+	resp, body = doJSON(t, data.Partner, "GET", base+"/sources", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list all sources: %d %s", resp.StatusCode, body)
+	}
+	var list struct {
+		Items []struct {
+			ID        string  `json:"id"`
+			Code      string  `json:"code"`
+			Name      string  `json:"name"`
+			OfferID   *string `json:"offer_id"`
+			URL       string  `json:"url"`
+			Totals    *struct {
+				Clicks int64 `json:"clicks"`
+			} `json:"totals"`
+			Totals30d *struct {
+				Clicks int64 `json:"clicks"`
+			} `json:"totals_30d"`
+		} `json:"items"`
+	}
+	_ = json.Unmarshal(body, &list)
+	if len(list.Items) != 2 {
+		t.Fatalf("expected 2 sources, got %+v", list.Items)
+	}
+	for _, it := range list.Items {
+		if it.OfferID == nil || *it.OfferID != data.Offer {
+			t.Fatalf("expected offer_id %s, got %+v", data.Offer, it)
+		}
+		if it.Totals == nil || it.Totals30d == nil {
+			t.Fatalf("totals missing: %+v", it)
+		}
+		if it.URL == "" {
+			t.Fatalf("url missing: %+v", it)
+		}
+	}
+}

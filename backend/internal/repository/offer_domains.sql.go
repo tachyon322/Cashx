@@ -174,6 +174,44 @@ func (q *Queries) ListActiveOfferDomains(ctx context.Context, offerID string) ([
 	return items, nil
 }
 
+const listMainOfferDomainsByOffers = `-- name: ListMainOfferDomainsByOffers :many
+SELECT DISTINCT ON (offer_id) id, offer_id, url, is_main, is_active, comment, created_at, updated_at
+FROM offer_domains
+WHERE offer_id = ANY($1::uuid[]) AND is_main = true AND is_active = true
+ORDER BY offer_id, created_at
+`
+
+// Active main domain per offer for a set of offers (batched form of
+// GetMainOfferDomain, used instead of one query per offer in Summary/ListOffers).
+func (q *Queries) ListMainOfferDomainsByOffers(ctx context.Context, dollar_1 []string) ([]OfferDomain, error) {
+	rows, err := q.db.Query(ctx, listMainOfferDomainsByOffers, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OfferDomain
+	for rows.Next() {
+		var i OfferDomain
+		if err := rows.Scan(
+			&i.ID,
+			&i.OfferID,
+			&i.Url,
+			&i.IsMain,
+			&i.IsActive,
+			&i.Comment,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOfferDomains = `-- name: ListOfferDomains :many
 SELECT id, offer_id, url, is_main, is_active, comment, created_at, updated_at FROM offer_domains WHERE offer_id = $1 ORDER BY is_main DESC, created_at
 `

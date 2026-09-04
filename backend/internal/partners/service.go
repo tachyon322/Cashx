@@ -3,12 +3,10 @@ package partners
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"cashx/internal/notifications"
@@ -101,27 +99,63 @@ func (s *Service) GetSummary(ctx context.Context, partnerID string) (Summary, er
 	}
 	out.Chart = chart
 
-	// Active offers with per-offer aggregates.
+	// Active offers with per-offer aggregates — batched: one grouped query for
+	// the all-time totals and one query for the default links (instead of two
+	// queries per offer).
 	accesses, err := q.ListPartnerAccessesWithOffer(ctx, partnerID)
 	if err != nil {
 		return out, err
 	}
-	allPeriod := tracking.AllTime()
+	activeAccesses := make([]repository.ListPartnerAccessesWithOfferRow, 0, len(accesses))
+	offerIDs := make([]string, 0, len(accesses))
 	for _, a := range accesses {
 		if a.OfferStatus != "active" {
 			continue
 		}
-		t, err := tracking.TotalsOfferAllTime(ctx, q, partnerID, a.OfferID)
+		activeAccesses = append(activeAccesses, a)
+		offerIDs = append(offerIDs, a.OfferID)
+	}
+
+	totalsByOffer := make(map[string]tracking.Totals, len(offerIDs))
+	linksByAccess := make(map[string]repository.TrackingLink, len(offerIDs))
+	mainDomains := make(map[string]string, len(offerIDs))
+	if len(activeAccesses) > 0 {
+		// All-time per-offer totals (wide day bounds).
+		statsRows, err := q.SumDailyStatsGroupedByOffer(ctx, repository.SumDailyStatsGroupedByOfferParams{
+			PartnerID: partnerID,
+			Day:       repository.DatePtr(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)),
+			Day_2:     repository.DatePtr(time.Now().AddDate(1, 0, 0)),
+		})
 		if err != nil {
 			return out, err
 		}
-		link, err := q.GetDefaultTrackingLinkByAccessID(ctx, a.ID)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		for _, r := range statsRows {
+			totalsByOffer[r.OfferID] = tracking.Totals{
+				Clicks: r.Clicks, UniqueClicks: r.UniqueClicks, Registrations: r.Registrations,
+				FirstPayments: r.FirstPayments, IncomeKopecks: r.IncomeKopecks,
+			}
+		}
+		linkRows, err := q.ListDefaultTrackingLinksByPartner(ctx, partnerID)
+		if err != nil {
 			return out, err
 		}
+		for _, l := range linkRows {
+			linksByAccess[l.PartnerOfferAccessID] = l
+		}
+		domainRows, err := q.ListMainOfferDomainsByOffers(ctx, offerIDs)
+		if err != nil {
+			return out, err
+		}
+		for _, d := range domainRows {
+			mainDomains[d.OfferID] = d.Url
+		}
+	}
+
+	for _, a := range activeAccesses {
+		t := totalsByOffer[a.OfferID]
 		url := ""
-		if err == nil {
-			url = s.trackingURLForOffer(ctx, q, a.OfferID, link)
+		if link, ok := linksByAccess[a.ID]; ok {
+			url = s.trackingURL(link, mainDomains[a.OfferID])
 		}
 		out.ActiveOffers = append(out.ActiveOffers, ActiveOffer{
 			OfferID: a.OfferID, Name: a.OfferName, RateBps: int(a.RateBps),
@@ -129,7 +163,6 @@ func (s *Service) GetSummary(ctx context.Context, partnerID string) (Summary, er
 			IncomeKopecks: t.IncomeKopecks,
 		})
 	}
-	_ = allPeriod
 
 	profile, err := q.GetPartnerProfileByID(ctx, partnerID)
 	if err != nil {
@@ -168,11 +201,49 @@ func (s *Service) ListOffers(ctx context.Context, partnerID string) ([]OfferList
 		return nil, err
 	}
 	accessByOffer := make(map[string]repository.ListPartnerAccessesWithOfferRow, len(accesses))
+	offerIDs := make([]string, 0, len(accesses))
 	for _, a := range accesses {
 		accessByOffer[a.OfferID] = a
+		offerIDs = append(offerIDs, a.OfferID)
 	}
-	// EPC/CR over the last 30 days from daily stats.
+
+	// Batched per-offer data (instead of up to three queries per joined offer):
+	// 30-day totals for EPC/CR, default tracking links, active main domains.
 	period := tracking.LastDays(30)
+	statsByOffer := make(map[string]tracking.Totals, len(offerIDs))
+	linksByAccess := make(map[string]repository.TrackingLink, len(offerIDs))
+	mainDomains := make(map[string]string, len(offerIDs))
+	if len(offerIDs) > 0 {
+		statsRows, err := q.SumDailyStatsGroupedByOffer(ctx, repository.SumDailyStatsGroupedByOfferParams{
+			PartnerID: partnerID,
+			Day:       repository.DatePtr(period.From),
+			Day_2:     repository.DatePtr(period.To),
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range statsRows {
+			statsByOffer[r.OfferID] = tracking.Totals{
+				Clicks: r.Clicks, UniqueClicks: r.UniqueClicks, Registrations: r.Registrations,
+				FirstPayments: r.FirstPayments, IncomeKopecks: r.IncomeKopecks,
+			}
+		}
+		linkRows, err := q.ListDefaultTrackingLinksByPartner(ctx, partnerID)
+		if err != nil {
+			return nil, err
+		}
+		for _, l := range linkRows {
+			linksByAccess[l.PartnerOfferAccessID] = l
+		}
+		domainRows, err := q.ListMainOfferDomainsByOffers(ctx, offerIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range domainRows {
+			mainDomains[d.OfferID] = d.Url
+		}
+	}
+
 	out := make([]OfferListItem, 0, len(rows))
 	for _, r := range rows {
 		if r.Status == "pending" {
@@ -186,20 +257,16 @@ func (s *Service) ListOffers(ctx context.Context, partnerID string) ([]OfferList
 		if a, ok := accessByOffer[r.ID]; ok {
 			rate := int(a.RateBps)
 			item.MyRateBps = &rate
-			if link, err := q.GetDefaultTrackingLinkByAccessID(ctx, a.ID); err == nil {
-				url := s.trackingURLForOffer(ctx, q, r.ID, link)
+			if link, ok := linksByAccess[a.ID]; ok {
+				url := s.trackingURL(link, mainDomains[r.ID])
 				item.MyTrackingURL = &url
 			}
-			t, err := tracking.TotalsOffer(ctx, q, partnerID, r.ID, period)
-			if err == nil {
-				if t.Clicks > 0 {
-					epc := float64(t.IncomeKopecks) / float64(t.Clicks)
-					item.EPC = &epc
-				}
-				if t.Clicks > 0 {
-					cr := float64(t.Registrations) / float64(t.Clicks) * 100
-					item.CR = &cr
-				}
+			t := statsByOffer[r.ID]
+			if t.Clicks > 0 {
+				epc := float64(t.IncomeKopecks) / float64(t.Clicks)
+				item.EPC = &epc
+				cr := float64(t.Registrations) / float64(t.Clicks) * 100
+				item.CR = &cr
 			}
 		}
 		out = append(out, item)
@@ -245,20 +312,16 @@ func (s *Service) GetReferrals(ctx context.Context, partnerID string) (Referrals
 		return out, err
 	}
 	out.TotalRewardKopecks = rewards
-	rows, err := q.ListReferralsByReferrer(ctx, partnerID)
+	rows, err := q.ListReferralsByReferrerWithRewards(ctx, partnerID)
 	if err != nil {
 		return out, err
 	}
 	for _, r := range rows {
-		reward, err := q.SumRewardsByInvited(ctx, r.InvitedPartnerID)
-		if err != nil {
-			return out, err
-		}
 		out.Items = append(out.Items, ReferralItem{
 			PartnerID: r.InvitedPartnerID, Name: r.Name,
 			Email:         &r.Email,
 			JoinedAt:      r.CreatedAt.Time.UTC().Format(time.RFC3339),
-			RewardKopecks: reward,
+			RewardKopecks: r.RewardKopecks,
 		})
 	}
 	return out, nil
@@ -379,18 +442,27 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, name *string
 	return err
 }
 
-// trackingURLForOffer builds the tracking URL for a default link: the link's
+// trackingURLForOffer resolves the tracking URL for an offer's link: the link's
 // own domain, else the offer's active main domain, else the CashX tracker
 // origin. {domain}/r/{code} mirrors redirect to the tracker and back.
 func (s *Service) trackingURLForOffer(ctx context.Context, q *repository.Queries, offerID string, link repository.TrackingLink) string {
+	main := ""
+	if md, err := q.GetMainOfferDomain(ctx, offerID); err == nil {
+		main = md.Url
+	}
+	return s.trackingURL(link, main)
+}
+
+// trackingURL builds the partner's tracking URL for a link given the offer's
+// pre-fetched active main domain (batched callers pass it in to avoid a
+// per-offer query).
+func (s *Service) trackingURL(link repository.TrackingLink, mainDomain string) string {
 	domain := ""
 	if link.Domain.Valid {
 		domain = link.Domain.String
 	}
 	if domain == "" {
-		if main, err := q.GetMainOfferDomain(ctx, offerID); err == nil {
-			domain = main.Url
-		}
+		domain = strings.TrimSpace(mainDomain)
 	}
 	if domain != "" {
 		return strings.TrimSuffix(domain, "/") + "/r/" + link.Code

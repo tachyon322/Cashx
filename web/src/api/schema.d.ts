@@ -140,6 +140,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cabinet/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all traffic sources of the partner across offers */
+        get: operations["cabinetSourcesList"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cabinet/offers/{offerId}/sources": {
         parameters: {
             query?: never;
@@ -925,6 +942,8 @@ export interface components {
             id?: string;
             code?: string;
             name?: string;
+            /** @description Offer the source belongs to (set by GET /cabinet/sources) */
+            offer_id?: string | null;
             comment?: string | null;
             group_id?: string | null;
             group_name?: string | null;
@@ -1425,6 +1444,30 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+        };
+    };
+    cabinetSourcesList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["Source"][];
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
         };
     };
     cabinetOfferSourcesList: {

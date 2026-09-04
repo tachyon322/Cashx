@@ -17,6 +17,14 @@ SELECT * FROM offer_domains WHERE id = $1 AND offer_id = $2;
 -- name: GetMainOfferDomain :one
 SELECT * FROM offer_domains WHERE offer_id = $1 AND is_main = true AND is_active = true LIMIT 1;
 
+-- name: ListMainOfferDomainsByOffers :many
+-- Active main domain per offer for a set of offers (batched form of
+-- GetMainOfferDomain, used instead of one query per offer in Summary/ListOffers).
+SELECT DISTINCT ON (offer_id) *
+FROM offer_domains
+WHERE offer_id = ANY($1::uuid[]) AND is_main = true AND is_active = true
+ORDER BY offer_id, created_at;
+
 -- name: ClearMainOfferDomain :exec
 UPDATE offer_domains SET is_main = false, updated_at = now()
 WHERE offer_id = $1 AND is_main = true;

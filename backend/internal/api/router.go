@@ -69,6 +69,7 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 			r.Patch("/cabinet/offers/{offerId}/sources/{sourceId}", w.CabinetOfferSourceUpdate)
 			r.Delete("/cabinet/offers/{offerId}/sources/{sourceId}", w.CabinetOfferSourceDelete)
 			r.Get("/cabinet/offers/{offerId}/domains", s.CabinetOfferDomainsList)
+			r.Get("/cabinet/sources", w.CabinetSourcesList)
 			r.Get("/cabinet/source-groups", w.CabinetSourceGroupsList)
 			r.Post("/cabinet/source-groups", w.CabinetSourceGroupCreate)
 			r.Patch("/cabinet/source-groups/{groupId}", w.CabinetSourceGroupUpdate)

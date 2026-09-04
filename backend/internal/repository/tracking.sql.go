@@ -786,8 +786,7 @@ func (q *Queries) GetIncomingEvent(ctx context.Context, arg GetIncomingEventPara
 const historyAttributionsByLink = `-- name: HistoryAttributionsByLink :many
 SELECT a.id, a.external_user_id, a.first_seen_at
 FROM external_user_attributions a
-WHERE COALESCE(a.tracking_link_id,
-        (SELECT c.tracking_link_id FROM tracking_clicks c WHERE c.id = a.tracking_click_id)) = $1
+WHERE a.tracking_link_id = $1
   AND a.first_seen_at >= $2 AND a.first_seen_at <= $3
 ORDER BY a.first_seen_at DESC LIMIT $4
 `
@@ -805,6 +804,10 @@ type HistoryAttributionsByLinkRow struct {
 	FirstSeenAt    pgtype.Timestamptz `json:"first_seen_at"`
 }
 
+// a.tracking_link_id populated by 00022/00025 backfill and set on every
+// insert path; filtering on it directly lets Postgres use
+// attributions_link_firstseen_idx (the old COALESCE(click subquery) form
+// forced a full scan of external_user_attributions).
 func (q *Queries) HistoryAttributionsByLink(ctx context.Context, arg HistoryAttributionsByLinkParams) ([]HistoryAttributionsByLinkRow, error) {
 	rows, err := q.db.Query(ctx, historyAttributionsByLink,
 		arg.TrackingLinkID,
@@ -880,8 +883,7 @@ const historyConversionsByLink = `-- name: HistoryConversionsByLink :many
 SELECT ce.id, ce.external_user_id, ce.amount_kopecks, ce.occurred_at
 FROM conversion_events ce
 JOIN external_user_attributions a ON a.id = ce.attribution_id
-WHERE COALESCE(a.tracking_link_id,
-        (SELECT c.tracking_link_id FROM tracking_clicks c WHERE c.id = a.tracking_click_id)) = $1
+WHERE a.tracking_link_id = $1
   AND ce.occurred_at >= $2 AND ce.occurred_at <= $3
 ORDER BY ce.occurred_at DESC LIMIT $4
 `
@@ -1181,6 +1183,78 @@ func (q *Queries) SumDailyLinkStatsAllTime(ctx context.Context, trackingLinkID s
 	return i, err
 }
 
+const sumDailyLinkStatsByLinks = `-- name: SumDailyLinkStatsByLinks :many
+SELECT tracking_link_id,
+       COALESCE(sum(clicks), 0)::bigint AS clicks,
+       COALESCE(sum(unique_clicks), 0)::bigint AS unique_clicks,
+       COALESCE(sum(registrations), 0)::bigint AS registrations,
+       COALESCE(sum(first_payments), 0)::bigint AS first_payments,
+       COALESCE(sum(income_kopecks), 0)::bigint AS income_kopecks,
+       COALESCE(sum(clicks) FILTER (WHERE day >= $2), 0)::bigint AS window_clicks,
+       COALESCE(sum(unique_clicks) FILTER (WHERE day >= $2), 0)::bigint AS window_unique_clicks,
+       COALESCE(sum(registrations) FILTER (WHERE day >= $2), 0)::bigint AS window_registrations,
+       COALESCE(sum(first_payments) FILTER (WHERE day >= $2), 0)::bigint AS window_first_payments,
+       COALESCE(sum(income_kopecks) FILTER (WHERE day >= $2), 0)::bigint AS window_income_kopecks
+FROM daily_tracking_link_stats
+WHERE tracking_link_id = ANY($1::uuid[])
+GROUP BY tracking_link_id
+`
+
+type SumDailyLinkStatsByLinksParams struct {
+	Column1 []string    `json:"column_1"`
+	Day     pgtype.Date `json:"day"`
+}
+
+type SumDailyLinkStatsByLinksRow struct {
+	TrackingLinkID      string `json:"tracking_link_id"`
+	Clicks              int64  `json:"clicks"`
+	UniqueClicks        int64  `json:"unique_clicks"`
+	Registrations       int64  `json:"registrations"`
+	FirstPayments       int64  `json:"first_payments"`
+	IncomeKopecks       int64  `json:"income_kopecks"`
+	WindowClicks        int64  `json:"window_clicks"`
+	WindowUniqueClicks  int64  `json:"window_unique_clicks"`
+	WindowRegistrations int64  `json:"window_registrations"`
+	WindowFirstPayments int64  `json:"window_first_payments"`
+	WindowIncomeKopecks int64  `json:"window_income_kopecks"`
+}
+
+// Batched per-source totals (all-time + windowed) for a set of links: one
+// index scan per link instead of two queries per link (N+1) in ListSources.
+// day_from is inclusive (start of the 30d window); rows before it count only
+// towards the all-time columns.
+func (q *Queries) SumDailyLinkStatsByLinks(ctx context.Context, arg SumDailyLinkStatsByLinksParams) ([]SumDailyLinkStatsByLinksRow, error) {
+	rows, err := q.db.Query(ctx, sumDailyLinkStatsByLinks, arg.Column1, arg.Day)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SumDailyLinkStatsByLinksRow
+	for rows.Next() {
+		var i SumDailyLinkStatsByLinksRow
+		if err := rows.Scan(
+			&i.TrackingLinkID,
+			&i.Clicks,
+			&i.UniqueClicks,
+			&i.Registrations,
+			&i.FirstPayments,
+			&i.IncomeKopecks,
+			&i.WindowClicks,
+			&i.WindowUniqueClicks,
+			&i.WindowRegistrations,
+			&i.WindowFirstPayments,
+			&i.WindowIncomeKopecks,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sumDailyStats = `-- name: SumDailyStats :one
 SELECT COALESCE(sum(clicks), 0)::bigint AS clicks,
        COALESCE(sum(unique_clicks), 0)::bigint AS unique_clicks,
@@ -1290,6 +1364,62 @@ func (q *Queries) SumDailyStatsByOffer(ctx context.Context, arg SumDailyStatsByO
 		&i.IncomeKopecks,
 	)
 	return i, err
+}
+
+const sumDailyStatsGroupedByOffer = `-- name: SumDailyStatsGroupedByOffer :many
+SELECT offer_id,
+       COALESCE(sum(clicks), 0)::bigint AS clicks,
+       COALESCE(sum(unique_clicks), 0)::bigint AS unique_clicks,
+       COALESCE(sum(registrations), 0)::bigint AS registrations,
+       COALESCE(sum(first_payments), 0)::bigint AS first_payments,
+       COALESCE(sum(income_kopecks), 0)::bigint AS income_kopecks
+FROM daily_partner_offer_stats
+WHERE partner_id = $1 AND day >= $2 AND day <= $3
+GROUP BY offer_id
+`
+
+type SumDailyStatsGroupedByOfferParams struct {
+	PartnerID string      `json:"partner_id"`
+	Day       pgtype.Date `json:"day"`
+	Day_2     pgtype.Date `json:"day_2"`
+}
+
+type SumDailyStatsGroupedByOfferRow struct {
+	OfferID       string `json:"offer_id"`
+	Clicks        int64  `json:"clicks"`
+	UniqueClicks  int64  `json:"unique_clicks"`
+	Registrations int64  `json:"registrations"`
+	FirstPayments int64  `json:"first_payments"`
+	IncomeKopecks int64  `json:"income_kopecks"`
+}
+
+// Per-offer totals for one partner over a period (used instead of a
+// per-offer loop in ListOffers / Summary).
+func (q *Queries) SumDailyStatsGroupedByOffer(ctx context.Context, arg SumDailyStatsGroupedByOfferParams) ([]SumDailyStatsGroupedByOfferRow, error) {
+	rows, err := q.db.Query(ctx, sumDailyStatsGroupedByOffer, arg.PartnerID, arg.Day, arg.Day_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SumDailyStatsGroupedByOfferRow
+	for rows.Next() {
+		var i SumDailyStatsGroupedByOfferRow
+		if err := rows.Scan(
+			&i.OfferID,
+			&i.Clicks,
+			&i.UniqueClicks,
+			&i.Registrations,
+			&i.FirstPayments,
+			&i.IncomeKopecks,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const sumDailyStatsOfferAllTime = `-- name: SumDailyStatsOfferAllTime :one

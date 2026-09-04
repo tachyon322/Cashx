@@ -190,6 +190,39 @@ SELECT COALESCE(sum(clicks), 0)::bigint AS clicks,
 FROM daily_tracking_link_stats
 WHERE tracking_link_id = $1;
 
+-- name: SumDailyLinkStatsByLinks :many
+-- Batched per-source totals (all-time + windowed) for a set of links: one
+-- index scan per link instead of two queries per link (N+1) in ListSources.
+-- day_from is inclusive (start of the 30d window); rows before it count only
+-- towards the all-time columns.
+SELECT tracking_link_id,
+       COALESCE(sum(clicks), 0)::bigint AS clicks,
+       COALESCE(sum(unique_clicks), 0)::bigint AS unique_clicks,
+       COALESCE(sum(registrations), 0)::bigint AS registrations,
+       COALESCE(sum(first_payments), 0)::bigint AS first_payments,
+       COALESCE(sum(income_kopecks), 0)::bigint AS income_kopecks,
+       COALESCE(sum(clicks) FILTER (WHERE day >= $2), 0)::bigint AS window_clicks,
+       COALESCE(sum(unique_clicks) FILTER (WHERE day >= $2), 0)::bigint AS window_unique_clicks,
+       COALESCE(sum(registrations) FILTER (WHERE day >= $2), 0)::bigint AS window_registrations,
+       COALESCE(sum(first_payments) FILTER (WHERE day >= $2), 0)::bigint AS window_first_payments,
+       COALESCE(sum(income_kopecks) FILTER (WHERE day >= $2), 0)::bigint AS window_income_kopecks
+FROM daily_tracking_link_stats
+WHERE tracking_link_id = ANY($1::uuid[])
+GROUP BY tracking_link_id;
+
+-- name: SumDailyStatsGroupedByOffer :many
+-- Per-offer totals for one partner over a period (used instead of a
+-- per-offer loop in ListOffers / Summary).
+SELECT offer_id,
+       COALESCE(sum(clicks), 0)::bigint AS clicks,
+       COALESCE(sum(unique_clicks), 0)::bigint AS unique_clicks,
+       COALESCE(sum(registrations), 0)::bigint AS registrations,
+       COALESCE(sum(first_payments), 0)::bigint AS first_payments,
+       COALESCE(sum(income_kopecks), 0)::bigint AS income_kopecks
+FROM daily_partner_offer_stats
+WHERE partner_id = $1 AND day >= $2 AND day <= $3
+GROUP BY offer_id;
+
 -- name: AggClicksByLink :many
 SELECT tracking_link_id, (created_at AT TIME ZONE 'Europe/Moscow')::date AS day, count(*)::bigint AS clicks
 FROM tracking_clicks
@@ -239,10 +272,13 @@ WHERE c.tracking_link_id = $1 AND c.created_at >= $2 AND c.created_at <= $3
 ORDER BY c.created_at DESC LIMIT $4;
 
 -- name: HistoryAttributionsByLink :many
+-- a.tracking_link_id populated by 00022/00025 backfill and set on every
+-- insert path; filtering on it directly lets Postgres use
+-- attributions_link_firstseen_idx (the old COALESCE(click subquery) form
+-- forced a full scan of external_user_attributions).
 SELECT a.id, a.external_user_id, a.first_seen_at
 FROM external_user_attributions a
-WHERE COALESCE(a.tracking_link_id,
-        (SELECT c.tracking_link_id FROM tracking_clicks c WHERE c.id = a.tracking_click_id)) = $1
+WHERE a.tracking_link_id = $1
   AND a.first_seen_at >= $2 AND a.first_seen_at <= $3
 ORDER BY a.first_seen_at DESC LIMIT $4;
 
@@ -250,8 +286,7 @@ ORDER BY a.first_seen_at DESC LIMIT $4;
 SELECT ce.id, ce.external_user_id, ce.amount_kopecks, ce.occurred_at
 FROM conversion_events ce
 JOIN external_user_attributions a ON a.id = ce.attribution_id
-WHERE COALESCE(a.tracking_link_id,
-        (SELECT c.tracking_link_id FROM tracking_clicks c WHERE c.id = a.tracking_click_id)) = $1
+WHERE a.tracking_link_id = $1
   AND ce.occurred_at >= $2 AND ce.occurred_at <= $3
 ORDER BY ce.occurred_at DESC LIMIT $4;
 

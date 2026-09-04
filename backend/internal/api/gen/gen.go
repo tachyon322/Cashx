@@ -800,16 +800,19 @@ type RegisterRequest struct {
 
 // Source defines model for Source.
 type Source struct {
-	Code              *string       `json:"code,omitempty"`
-	Comment           *string       `json:"comment,omitempty"`
-	CreatedAt         *time.Time    `json:"created_at,omitempty"`
-	Domain            *string       `json:"domain,omitempty"`
-	GroupId           *string       `json:"group_id,omitempty"`
-	GroupName         *string       `json:"group_name,omitempty"`
-	Id                *string       `json:"id,omitempty"`
-	IsActive          *bool         `json:"is_active,omitempty"`
-	IsDefault         *bool         `json:"is_default,omitempty"`
-	Name              *string       `json:"name,omitempty"`
+	Code      *string    `json:"code,omitempty"`
+	Comment   *string    `json:"comment,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	Domain    *string    `json:"domain,omitempty"`
+	GroupId   *string    `json:"group_id,omitempty"`
+	GroupName *string    `json:"group_name,omitempty"`
+	Id        *string    `json:"id,omitempty"`
+	IsActive  *bool      `json:"is_active,omitempty"`
+	IsDefault *bool      `json:"is_default,omitempty"`
+	Name      *string    `json:"name,omitempty"`
+
+	// OfferId Offer the source belongs to (set by GET /cabinet/sources)
+	OfferId           *string       `json:"offer_id,omitempty"`
 	RedirectId        *string       `json:"redirect_id,omitempty"`
 	RegistrationBonus *int          `json:"registration_bonus,omitempty"`
 	Totals            *SourceTotals `json:"totals,omitempty"`
@@ -1472,6 +1475,9 @@ type ServerInterface interface {
 	// CabinetSourceGroupUpdate Update a source group
 	// (PATCH /cabinet/source-groups/{groupId})
 	CabinetSourceGroupUpdate(w http.ResponseWriter, r *http.Request, groupId GroupId)
+	// CabinetSourcesList List all traffic sources of the partner across offers
+	// (GET /cabinet/sources)
+	CabinetSourcesList(w http.ResponseWriter, r *http.Request)
 	// CabinetSummary Partner dashboard summary
 	// (GET /cabinet/summary)
 	CabinetSummary(w http.ResponseWriter, r *http.Request)
@@ -1829,6 +1835,12 @@ func (_ Unimplemented) CabinetSourceGroupDelete(w http.ResponseWriter, r *http.R
 // CabinetSourceGroupUpdate Update a source group
 // (PATCH /cabinet/source-groups/{groupId})
 func (_ Unimplemented) CabinetSourceGroupUpdate(w http.ResponseWriter, r *http.Request, groupId GroupId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CabinetSourcesList List all traffic sources of the partner across offers
+// (GET /cabinet/sources)
+func (_ Unimplemented) CabinetSourcesList(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3450,6 +3462,20 @@ func (siw *ServerInterfaceWrapper) CabinetSourceGroupUpdate(w http.ResponseWrite
 	handler.ServeHTTP(w, r)
 }
 
+// CabinetSourcesList operation middleware
+func (siw *ServerInterfaceWrapper) CabinetSourcesList(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CabinetSourcesList(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CabinetSummary operation middleware
 func (siw *ServerInterfaceWrapper) CabinetSummary(w http.ResponseWriter, r *http.Request) {
 
@@ -3614,6 +3640,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/cabinet/offers/{offerId}", wrapper.CabinetOfferStats)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/cabinet/sources", wrapper.CabinetSourcesList)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/cabinet/offers/{offerId}/sources", wrapper.CabinetOfferSourcesList)

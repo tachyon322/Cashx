@@ -738,6 +738,53 @@ func (q *Queries) ListAllActiveAccesses(ctx context.Context) ([]ListAllActiveAcc
 	return items, nil
 }
 
+const listDefaultTrackingLinksByPartner = `-- name: ListDefaultTrackingLinksByPartner :many
+SELECT DISTINCT ON (tl.partner_offer_access_id) tl.id, tl.partner_offer_access_id, tl.code, tl.name, tl.comment, tl.group_id, tl.is_default, tl.is_active, tl.type, tl.registration_bonus, tl.domain, tl.redirect_id, tl.legacy_kazik_source_id, tl.created_at, tl.updated_at
+FROM tracking_links tl
+JOIN partner_offer_accesses pa ON pa.id = tl.partner_offer_access_id
+WHERE pa.partner_id = $1
+ORDER BY tl.partner_offer_access_id, tl.is_default DESC, tl.created_at
+`
+
+// Default link per access for all of the partner's accesses (same
+// is_default DESC, created_at preference as GetDefaultTrackingLinkByAccessID)
+// in a single query, instead of one query per offer in Summary/ListOffers.
+func (q *Queries) ListDefaultTrackingLinksByPartner(ctx context.Context, partnerID string) ([]TrackingLink, error) {
+	rows, err := q.db.Query(ctx, listDefaultTrackingLinksByPartner, partnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TrackingLink
+	for rows.Next() {
+		var i TrackingLink
+		if err := rows.Scan(
+			&i.ID,
+			&i.PartnerOfferAccessID,
+			&i.Code,
+			&i.Name,
+			&i.Comment,
+			&i.GroupID,
+			&i.IsDefault,
+			&i.IsActive,
+			&i.Type,
+			&i.RegistrationBonus,
+			&i.Domain,
+			&i.RedirectID,
+			&i.LegacyKazikSourceID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOffers = `-- name: ListOffers :many
 SELECT o.id, o.project_id, o.name, o.category, o.description, o.destination_url, o.status, o.created_at, o.updated_at,
        p.name AS project_name
@@ -1062,6 +1109,76 @@ func (q *Queries) ListTrackingLinksByPartner(ctx context.Context, arg ListTracki
 			&i.LegacyKazikSourceID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTrackingLinksByPartnerWithOffer = `-- name: ListTrackingLinksByPartnerWithOffer :many
+SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.name, tl.comment, tl.group_id, tl.is_default, tl.is_active, tl.type, tl.registration_bonus, tl.domain, tl.redirect_id, tl.legacy_kazik_source_id, tl.created_at, tl.updated_at, g.name AS group_name, pa.offer_id
+FROM tracking_links tl
+JOIN partner_offer_accesses pa ON pa.id = tl.partner_offer_access_id
+LEFT JOIN source_groups g ON g.id = tl.group_id
+WHERE pa.partner_id = $1
+ORDER BY tl.created_at
+`
+
+type ListTrackingLinksByPartnerWithOfferRow struct {
+	ID                   string             `json:"id"`
+	PartnerOfferAccessID string             `json:"partner_offer_access_id"`
+	Code                 string             `json:"code"`
+	Name                 string             `json:"name"`
+	Comment              pgtype.Text        `json:"comment"`
+	GroupID              pgtype.UUID        `json:"group_id"`
+	IsDefault            bool               `json:"is_default"`
+	IsActive             bool               `json:"is_active"`
+	Type                 string             `json:"type"`
+	RegistrationBonus    pgtype.Int4        `json:"registration_bonus"`
+	Domain               pgtype.Text        `json:"domain"`
+	RedirectID           pgtype.UUID        `json:"redirect_id"`
+	LegacyKazikSourceID  pgtype.Text        `json:"legacy_kazik_source_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	GroupName            pgtype.Text        `json:"group_name"`
+	OfferID              string             `json:"offer_id"`
+}
+
+// All tracking links of a partner across every offer they have access to,
+// with the offer id and group name. Backs GET /cabinet/sources (dashboard
+// needs all sources in one round trip instead of one request per offer).
+func (q *Queries) ListTrackingLinksByPartnerWithOffer(ctx context.Context, partnerID string) ([]ListTrackingLinksByPartnerWithOfferRow, error) {
+	rows, err := q.db.Query(ctx, listTrackingLinksByPartnerWithOffer, partnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTrackingLinksByPartnerWithOfferRow
+	for rows.Next() {
+		var i ListTrackingLinksByPartnerWithOfferRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PartnerOfferAccessID,
+			&i.Code,
+			&i.Name,
+			&i.Comment,
+			&i.GroupID,
+			&i.IsDefault,
+			&i.IsActive,
+			&i.Type,
+			&i.RegistrationBonus,
+			&i.Domain,
+			&i.RedirectID,
+			&i.LegacyKazikSourceID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.GroupName,
+			&i.OfferID,
 		); err != nil {
 			return nil, err
 		}

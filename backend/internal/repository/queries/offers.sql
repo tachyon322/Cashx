@@ -100,6 +100,16 @@ WHERE partner_offer_access_id = $1
 ORDER BY is_default DESC, created_at
 LIMIT 1;
 
+-- name: ListDefaultTrackingLinksByPartner :many
+-- Default link per access for all of the partner's accesses (same
+-- is_default DESC, created_at preference as GetDefaultTrackingLinkByAccessID)
+-- in a single query, instead of one query per offer in Summary/ListOffers.
+SELECT DISTINCT ON (tl.partner_offer_access_id) tl.*
+FROM tracking_links tl
+JOIN partner_offer_accesses pa ON pa.id = tl.partner_offer_access_id
+WHERE pa.partner_id = $1
+ORDER BY tl.partner_offer_access_id, tl.is_default DESC, tl.created_at;
+
 -- name: GetTrackingLinkByID :one
 SELECT * FROM tracking_links WHERE id = $1;
 
@@ -109,6 +119,17 @@ FROM tracking_links tl
 LEFT JOIN source_groups g ON g.id = tl.group_id
 WHERE tl.partner_offer_access_id = $1
 ORDER BY tl.is_default DESC, tl.created_at;
+
+-- name: ListTrackingLinksByPartnerWithOffer :many
+-- All tracking links of a partner across every offer they have access to,
+-- with the offer id and group name. Backs GET /cabinet/sources (dashboard
+-- needs all sources in one round trip instead of one request per offer).
+SELECT tl.*, g.name AS group_name, pa.offer_id
+FROM tracking_links tl
+JOIN partner_offer_accesses pa ON pa.id = tl.partner_offer_access_id
+LEFT JOIN source_groups g ON g.id = tl.group_id
+WHERE pa.partner_id = $1
+ORDER BY tl.created_at;
 
 -- name: UpdateTrackingLink :one
 UPDATE tracking_links

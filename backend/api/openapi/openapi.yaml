@@ -172,6 +172,26 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
+  /cabinet/sources:
+    get:
+      operationId: cabinetSourcesList
+      summary: List all traffic sources of the partner across offers
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Source'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
   /cabinet/offers/{offerId}/sources:
     get:
       operationId: cabinetOfferSourcesList
@@ -1813,6 +1833,10 @@ components:
           type: string
         name:
           type: string
+        offer_id:
+          type: string
+          nullable: true
+          description: Offer the source belongs to (set by GET /cabinet/sources)
         comment:
           type: string
           nullable: true

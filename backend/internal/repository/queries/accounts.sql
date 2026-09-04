@@ -76,9 +76,17 @@ SELECT a.id, a.partner_id, a.offer_id, a.rate_bps, a.status
 FROM partner_offer_accesses a
 ORDER BY a.created_at;
 
--- name: ListReferralsByReferrer :many
+-- name: ListReferralsByReferrerWithRewards :many
+-- Referrals of a partner with per-invited reward totals in a single round
+-- trip. Replaces the per-referral SumRewardsByInvited loop. The correlated
+-- sum uses the partial covering index referral_rewards_invited_idx
+-- (migration 00026): an index-only scan per invited partner, no heap
+-- access and no sort of the joined rewards.
 SELECT r.id, r.referrer_partner_id, r.invited_partner_id, r.referral_rate_bps, r.created_at,
-       u.name, u.email
+       u.name, u.email,
+       COALESCE((SELECT sum(rr.amount_kopecks) FROM referral_rewards rr
+                 WHERE rr.invited_partner_id = r.invited_partner_id
+                   AND rr.reversed_at IS NULL), 0)::bigint AS reward_kopecks
 FROM partner_referrals r
 JOIN partner_profiles p ON p.id = r.invited_partner_id
 JOIN users u ON u.id = p.user_id

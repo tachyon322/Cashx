@@ -658,17 +658,6 @@ func (q *Queries) ReverseReward(ctx context.Context, id string) (ReferralReward,
 	return i, err
 }
 
-const sumRewardsByInvited = `-- name: SumRewardsByInvited :one
-SELECT COALESCE(sum(amount_kopecks), 0)::bigint FROM referral_rewards WHERE invited_partner_id = $1 AND reversed_at IS NULL
-`
-
-func (q *Queries) SumRewardsByInvited(ctx context.Context, invitedPartnerID string) (int64, error) {
-	row := q.db.QueryRow(ctx, sumRewardsByInvited, invitedPartnerID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const sumRewardsByReferrer = `-- name: SumRewardsByReferrer :one
 SELECT COALESCE(sum(amount_kopecks), 0)::bigint FROM referral_rewards WHERE referrer_partner_id = $1 AND reversed_at IS NULL
 `

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"cashx/internal/platform"
 	"cashx/internal/repository"
@@ -27,10 +28,12 @@ type SourceTotals struct {
 }
 
 // Source is one tracking link (traffic source) with its statistics.
+// OfferID is set only by ListAllSources (GET /cabinet/sources).
 type Source struct {
 	ID                string       `json:"id"`
 	Code              string       `json:"code"`
 	Name              string       `json:"name"`
+	OfferID           string       `json:"offer_id,omitempty"`
 	Comment           *string      `json:"comment"`
 	GroupID           *string      `json:"group_id"`
 	GroupName         *string      `json:"group_name"`
@@ -44,6 +47,24 @@ type Source struct {
 	Totals            SourceTotals `json:"totals"`
 	Totals30d         SourceTotals `json:"totals_30d"`
 	CreatedAt         string       `json:"created_at"`
+}
+
+// sourceLinkRow is the link-listing shape shared by the per-offer and
+// all-offers source lists (both map their sqlc rows into it).
+type sourceLinkRow struct {
+	ID                string
+	Code              string
+	Name              string
+	Comment           pgtype.Text
+	GroupID           pgtype.UUID
+	GroupName         pgtype.Text
+	IsDefault         bool
+	IsActive          bool
+	Type              string
+	RegistrationBonus pgtype.Int4
+	Domain            pgtype.Text
+	RedirectID        pgtype.UUID
+	CreatedAt         pgtype.Timestamptz
 }
 
 // Group is a partner-scoped traffic flow used to organize sources.
@@ -160,16 +181,13 @@ func (s *Service) totalsFor(ctx context.Context, q *repository.Queries, linkID s
 	return all, last30, nil
 }
 
-// sourceFromRow converts a listed link row (with joined group name) to Source.
+// sourceFromRow converts a listed link row to Source.
 // mainDomain is the offer's active main domain used when the source has none.
-func (s *Service) sourceFromRow(ctx context.Context, q *repository.Queries, r repository.ListTrackingLinksByAccessIDRow, mainDomain string) (Source, error) {
+// all/last30 are the pre-fetched per-source totals.
+func (s *Service) sourceFromRow(r sourceLinkRow, mainDomain string, all, last30 SourceTotals) Source {
 	groupID := repository.UUIDToPtr(r.GroupID)
 	groupName := repository.TextToPtr(r.GroupName)
 	comment := repository.TextToPtr(r.Comment)
-	all, last30, err := s.totalsFor(ctx, q, r.ID)
-	if err != nil {
-		return Source{}, err
-	}
 	var bonus *int
 	if r.RegistrationBonus.Valid {
 		v := int(r.RegistrationBonus.Int32)
@@ -190,7 +208,7 @@ func (s *Service) sourceFromRow(ctx context.Context, q *repository.Queries, r re
 		URL: s.linkURL(r.Code, domainDeref(domain), mainDomain), Type: r.Type, RegistrationBonus: bonus, Domain: domain, RedirectID: redirectID,
 		Totals: all, Totals30d: last30,
 		CreatedAt: r.CreatedAt.Time.UTC().Format(time.RFC3339),
-	}, nil
+	}
 }
 
 func domainDeref(d *string) string {
@@ -201,7 +219,9 @@ func domainDeref(d *string) string {
 }
 
 // ListSources returns all sources (tracking links) for a partner's offer with
-// per-source totals.
+// per-source totals. Totals for all links are fetched with a single grouped
+// query (SumDailyLinkStatsByLinks) instead of two queries per link, which
+// made the request take seconds for partners with many sources.
 func (s *Service) ListSources(ctx context.Context, partnerID, offerID string) ([]Source, error) {
 	q := s.q(ctx)
 	access, err := s.accessForOffer(ctx, q, partnerID, offerID)
@@ -213,13 +233,108 @@ func (s *Service) ListSources(ctx context.Context, partnerID, offerID string) ([
 		return nil, err
 	}
 	mainDomain, _ := s.MainOfferDomain(ctx, offerID)
+
+	// Batched totals: all-time + 30d window in one query for every link.
+	linkIDs := make([]string, 0, len(rows))
+	for _, r := range rows {
+		linkIDs = append(linkIDs, r.ID)
+	}
+	totalsByLink, err := s.totalsByLinkIDs(ctx, q, linkIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	out := make([]Source, 0, len(rows))
 	for _, r := range rows {
-		src, err := s.sourceFromRow(ctx, q, r, mainDomain)
+		t := totalsByLink[r.ID] // zero totals when the link has no stats yet
+		out = append(out, s.sourceFromRow(sourceLinkRow{
+			ID: r.ID, Code: r.Code, Name: r.Name, Comment: r.Comment,
+			GroupID: r.GroupID, GroupName: r.GroupName,
+			IsDefault: r.IsDefault, IsActive: r.IsActive, Type: r.Type,
+			RegistrationBonus: r.RegistrationBonus, Domain: r.Domain, RedirectID: r.RedirectID,
+			CreatedAt: r.CreatedAt,
+		}, mainDomain, t[0], t[1]))
+	}
+	return out, nil
+}
+
+// ListAllSources returns every source (tracking link) of the partner across
+// all joined offers, with per-source totals and the owning offer id. Backs
+// GET /cabinet/sources: the dashboard gets all sources in one round trip
+// (and in parallel with the offers request) instead of firing one
+// ListSources request per offer.
+func (s *Service) ListAllSources(ctx context.Context, partnerID string) ([]Source, error) {
+	q := s.q(ctx)
+	rows, err := q.ListTrackingLinksByPartnerWithOffer(ctx, partnerID)
+	if err != nil {
+		return nil, err
+	}
+
+	linkIDs := make([]string, 0, len(rows))
+	offerIDs := make([]string, 0, len(rows))
+	for _, r := range rows {
+		linkIDs = append(linkIDs, r.ID)
+		offerIDs = append(offerIDs, r.OfferID)
+	}
+
+	// Batched per-link totals and per-offer main domains.
+	totalsByLink, err := s.totalsByLinkIDs(ctx, q, linkIDs)
+	if err != nil {
+		return nil, err
+	}
+	mainDomains := make(map[string]string, len(offerIDs))
+	if len(offerIDs) > 0 {
+		domainRows, err := q.ListMainOfferDomainsByOffers(ctx, offerIDs)
 		if err != nil {
 			return nil, err
 		}
+		for _, d := range domainRows {
+			mainDomains[d.OfferID] = d.Url
+		}
+	}
+
+	out := make([]Source, 0, len(rows))
+	for _, r := range rows {
+		t := totalsByLink[r.ID]
+		src := s.sourceFromRow(sourceLinkRow{
+			ID: r.ID, Code: r.Code, Name: r.Name, Comment: r.Comment,
+			GroupID: r.GroupID, GroupName: r.GroupName,
+			IsDefault: r.IsDefault, IsActive: r.IsActive, Type: r.Type,
+			RegistrationBonus: r.RegistrationBonus, Domain: r.Domain, RedirectID: r.RedirectID,
+			CreatedAt: r.CreatedAt,
+		}, mainDomains[r.OfferID], t[0], t[1])
+		src.OfferID = r.OfferID
 		out = append(out, src)
+	}
+	return out, nil
+}
+
+// totalsByLinkIDs fetches all-time and 30-day per-link totals in one grouped
+// query; links without stats map to zero totals.
+func (s *Service) totalsByLinkIDs(ctx context.Context, q *repository.Queries, linkIDs []string) (map[string][2]SourceTotals, error) {
+	out := make(map[string][2]SourceTotals, len(linkIDs))
+	if len(linkIDs) == 0 {
+		return out, nil
+	}
+	period := tracking.LastDays(30)
+	aggRows, err := q.SumDailyLinkStatsByLinks(ctx, repository.SumDailyLinkStatsByLinksParams{
+		Column1: linkIDs,
+		Day:     repository.DatePtr(period.From),
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range aggRows {
+		out[a.TrackingLinkID] = [2]SourceTotals{
+			{
+				Clicks: a.Clicks, UniqueClicks: a.UniqueClicks, Registrations: a.Registrations,
+				FirstPayments: a.FirstPayments, IncomeKopecks: a.IncomeKopecks,
+			},
+			{
+				Clicks: a.WindowClicks, UniqueClicks: a.WindowUniqueClicks, Registrations: a.WindowRegistrations,
+				FirstPayments: a.WindowFirstPayments, IncomeKopecks: a.WindowIncomeKopecks,
+			},
+		}
 	}
 	return out, nil
 }
@@ -383,7 +498,17 @@ func (s *Service) sourceByID(ctx context.Context, q *repository.Queries, offerID
 	mainDomain, _ := s.MainOfferDomain(ctx, offerID)
 	for _, r := range row {
 		if r.ID == id {
-			return s.sourceFromRow(ctx, q, r, mainDomain)
+			all, last30, err := s.totalsFor(ctx, q, r.ID)
+			if err != nil {
+				return Source{}, err
+			}
+			return s.sourceFromRow(sourceLinkRow{
+				ID: r.ID, Code: r.Code, Name: r.Name, Comment: r.Comment,
+				GroupID: r.GroupID, GroupName: r.GroupName,
+				IsDefault: r.IsDefault, IsActive: r.IsActive, Type: r.Type,
+				RegistrationBonus: r.RegistrationBonus, Domain: r.Domain, RedirectID: r.RedirectID,
+				CreatedAt: r.CreatedAt,
+			}, mainDomain, all, last30), nil
 		}
 	}
 	return Source{}, fmt.Errorf("%w: source_not_found", platform.ErrNotFound)

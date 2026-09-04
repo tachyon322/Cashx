@@ -663,26 +663,15 @@ export function useSourceGroups() {
   })
 }
 
-/** Все источники партнёра по всем офферам — агрегат для дашборда. */
+/** Все источники партнёра по всем офферам — один запрос (дашборд). */
 export function useAllSources() {
-  const offersQuery = useOffers()
-  const offerIds = useMemo(() => {
-    const items = offersQuery.data?.items ?? []
-    return items.map((o) => o.offer_id ?? '').filter((v): v is string => v.length > 0)
-  }, [offersQuery.data])
-
   return useQuery({
-    queryKey: ['all-sources', offerIds],
+    queryKey: ['all-sources'],
     queryFn: () =>
       guarded(async () => {
-        const results = await Promise.all(
-          offerIds.map((offerId) =>
-            unwrap(api.GET('/cabinet/offers/{offerId}/sources', { params: { path: { offerId } } })),
-          ),
-        )
-        return results.flatMap((r) => r.items ?? []) as components['schemas']['Source'][]
+        const r = await unwrap(api.GET('/cabinet/sources'))
+        return (r.items ?? []) as components['schemas']['Source'][]
       }),
-    enabled: offerIds.length > 0,
     retry: 1,
   })
 }

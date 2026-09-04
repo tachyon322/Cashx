@@ -3,10 +3,7 @@ package partners
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // B2CReferralItem mirrors kazik's ReferralItem for players.
@@ -19,26 +16,44 @@ type B2CReferralItem struct {
 	SourceID          string  `json:"source_id"`
 	SourceName        string  `json:"source_name"`
 	DepositsCount     int64   `json:"deposits_count"`
-	DepositsSum       int64   `json:"deposits_sum"` // kopecks
-	Income            int64   `json:"income"`       // kopecks, commission
+	DepositsSum       int64   `json:"deposits_sum"`       // kopecks
+	Income            int64   `json:"income"`             // kopecks, commission
 	CommissionPercent int     `json:"commission_percent"` // 0-100
 }
 
-// GetB2CReferrals returns player referrals (B2C) for a partner, deduped by external_user_id.
-// Range filters by first_seen_at (attribution time) in UTC; caller should convert from MSK if needed.
+// GetB2CReferrals returns player referrals (B2C) for a partner, deduped by
+// external_user_id (first-touch: the earliest attribution wins).
+// Range filters by first_seen_at (attribution time) in UTC; caller should
+// convert from MSK if needed.
+//
+// Everything is fetched with a single SQL query: the per-user dedup via
+// DISTINCT ON, and the deposit aggregates via a grouped join on
+// conversion_events (indexed by attribution_id). The previous version issued
+// two extra queries per referred player (N+1), which made the page take
+// seconds or minutes in production.
 func (s *Service) GetB2CReferrals(ctx context.Context, partnerID string, from, to *time.Time) (total int, sum int64, items []B2CReferralItem, err error) {
-	q := s.q(ctx)
-	// Get all attributions for partner
-	// Use raw query via pool because we need dynamic filtering and joins.
-	// We'll query external_user_attributions with tracking link info.
+	// Get partner revshare for income calc.
+	profile, err := s.q(ctx).GetPartnerProfileByID(ctx, partnerID)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	commissionPercent := int(profile.RevsharePercentBps / 100) // 4000 bps -> 40%
+	revshareBps := int(profile.RevsharePercentBps)
+
+	// $1 partner_id, then optional $n range bounds shared by both branches.
+	// earliest: first-touch attribution per referred player (dedup by
+	// external_user_id) within the requested first_seen_at range.
+	// deposits: all conversion events of the partner's players, grouped per
+	// player, within the requested occurred_at range.
 	query := `
-		SELECT a.id, a.external_user_id, a.first_seen_at, a.tracking_click_id,
-		       tl.id as link_id, tl.name as link_name, tl.type as link_type
-		FROM external_user_attributions a
-		LEFT JOIN tracking_clicks tc ON tc.id = a.tracking_click_id
-		LEFT JOIN tracking_links tl ON tl.id = tc.tracking_link_id
-		WHERE a.partner_id = $1
-	`
+		WITH earliest AS (
+			SELECT DISTINCT ON (a.external_user_id)
+			       a.id, a.external_user_id, a.first_seen_at,
+			       tl.id AS link_id, tl.name AS link_name, tl.type AS link_type
+			FROM external_user_attributions a
+			LEFT JOIN tracking_clicks tc ON tc.id = a.tracking_click_id
+			LEFT JOIN tracking_links tl ON tl.id = COALESCE(a.tracking_link_id, tc.tracking_link_id)
+			WHERE a.partner_id = $1`
 	args := []interface{}{partnerID}
 	argIdx := 2
 	if from != nil {
@@ -51,7 +66,33 @@ func (s *Service) GetB2CReferrals(ctx context.Context, partnerID string, from, t
 		args = append(args, *to)
 		argIdx++
 	}
-	query += " ORDER BY a.first_seen_at DESC"
+	query += `
+			ORDER BY a.external_user_id, a.first_seen_at
+		), deposits AS (
+			SELECT a.external_user_id,
+			       count(*) AS deposits_count,
+			       COALESCE(sum(ce.amount_kopecks), 0) AS deposits_sum
+			FROM conversion_events ce
+			JOIN external_user_attributions a ON a.id = ce.attribution_id
+			WHERE a.partner_id = $1`
+	if from != nil {
+		query += fmt.Sprintf(" AND ce.occurred_at >= $%d", argIdx)
+		args = append(args, *from)
+		argIdx++
+	}
+	if to != nil {
+		query += fmt.Sprintf(" AND ce.occurred_at <= $%d", argIdx)
+		args = append(args, *to)
+		argIdx++
+	}
+	query += `
+			GROUP BY a.external_user_id
+		)
+		SELECT e.external_user_id, e.first_seen_at, e.link_id, e.link_name, e.link_type,
+		       COALESCE(d.deposits_count, 0), COALESCE(d.deposits_sum, 0)
+		FROM earliest e
+		LEFT JOIN deposits d ON d.external_user_id = e.external_user_id
+		ORDER BY e.first_seen_at DESC`
 
 	rows, err := s.Pool.Query(ctx, query, args...)
 	if err != nil {
@@ -59,136 +100,56 @@ func (s *Service) GetB2CReferrals(ctx context.Context, partnerID string, from, t
 	}
 	defer rows.Close()
 
-	type row struct {
-		ID             int64
-		ExternalUserID string
-		FirstSeenAt    time.Time
-		ClickID        *int64
-		LinkID         *string
-		LinkName       *string
-		LinkType       *string
-	}
-	var raw []row
-	byUser := make(map[string]B2CReferralItem)
+	items = make([]B2CReferralItem, 0, 64)
 	for rows.Next() {
-		var r row
-		var clickID *int64
-		var linkID, linkName, linkType *string
-		if err := rows.Scan(&r.ID, &r.ExternalUserID, &r.FirstSeenAt, &clickID, &linkID, &linkName, &linkType); err != nil {
+		var (
+			externalUserID             string
+			firstSeenAt                time.Time
+			linkID, linkName, linkType *string
+			depositsCount              int64
+			depositsSum                int64
+		)
+		if err := rows.Scan(&externalUserID, &firstSeenAt, &linkID, &linkName, &linkType, &depositsCount, &depositsSum); err != nil {
 			return 0, 0, nil, err
 		}
-		r.ClickID = clickID
-		r.LinkID = linkID
-		r.LinkName = linkName
-		r.LinkType = linkType
-		raw = append(raw, r)
-		// Dedup by external_user_id (first-seen earliest? but we order DESC, so first encountered is latest; need earliest)
-		// Since query is DESC, first encountered is latest; we want earliest, so we should keep first and ignore later duplicates? But to keep earliest, we should iterate and if not exists, add; later duplicates (earlier) will be ignored. To get earliest, we should order ASC and keep first.
-		// However we want dedup keep earliest attribution (first-touch). So we should have ordered ASC and kept first.
-		// We'll fix by processing in reverse: keep earliest by checking if already exists, skip.
-	}
-	// Fix dedup: need earliest, so we should have queried ASC and keep first. Let's re-sort or just keep first seen (which is latest due to DESC). Better to re-query ASC.
-	// For now, handle dedup properly: iterate raw in reverse to keep earliest.
-	for i := len(raw) - 1; i >= 0; i-- {
-		r := raw[i]
-		if _, ok := byUser[r.ExternalUserID]; ok {
-			continue
-		}
 		kind := "registration"
-		if r.LinkType != nil && *r.LinkType == "promo" {
+		if linkType != nil && *linkType == "promo" {
 			kind = "promo"
 		}
-		sourceID := ""
-		if r.LinkID != nil {
-			sourceID = *r.LinkID
+		sourceID, sourceName := "", ""
+		if linkID != nil {
+			sourceID = *linkID
 		}
-		sourceName := ""
-		if r.LinkName != nil {
-			sourceName = *r.LinkName
+		if linkName != nil {
+			sourceName = *linkName
 		}
-		byUser[r.ExternalUserID] = B2CReferralItem{
-			UserID:     r.ExternalUserID,
-			Name:       r.ExternalUserID, // fallback, will try to resolve via external system later
+		it := B2CReferralItem{
+			// Name fallback: resolve via an external system mapping later if needed.
+			UserID:     externalUserID,
+			Name:       externalUserID,
 			Kind:       kind,
-			CreatedAt:  r.FirstSeenAt.UTC().Format(time.RFC3339),
+			CreatedAt:  firstSeenAt.UTC().Format(time.RFC3339),
 			SourceID:   sourceID,
 			SourceName: sourceName,
 		}
-	}
-
-	if len(byUser) == 0 {
-		return 0, 0, []B2CReferralItem{}, nil
-	}
-
-	// Get partner revshare for income calc
-	profile, err := q.GetPartnerProfileByID(ctx, partnerID)
-	if err != nil {
-		return 0, 0, nil, err
-	}
-	commissionPercent := int(profile.RevsharePercentBps / 100) // 4000 bps -> 40%
-	revshareBps := int(profile.RevsharePercentBps)
-
-	// For each user, get deposit aggregates from conversion_events
-	items = make([]B2CReferralItem, 0, len(byUser))
-	for uid, it := range byUser {
-		// Query conversion_events for this user via attributions
-		// Find attribution id for uid
-		var attrID int64
-		err := s.Pool.QueryRow(ctx, `SELECT id FROM external_user_attributions WHERE partner_id=$1 AND external_user_id=$2 ORDER BY first_seen_at LIMIT 1`, partnerID, uid).Scan(&attrID)
-		if err != nil && err != pgx.ErrNoRows {
-			continue
-		}
-		var depositsCount int64
-		var depositsSum int64
-		// Apply date range to conversion occurred_at as well?
-		q2 := `SELECT count(*), COALESCE(sum(amount_kopecks),0) FROM conversion_events WHERE attribution_id=$1`
-		args2 := []interface{}{attrID}
-		if from != nil {
-			q2 += fmt.Sprintf(" AND occurred_at >= $%d", len(args2)+1)
-			args2 = append(args2, *from)
-		}
-		if to != nil {
-			q2 += fmt.Sprintf(" AND occurred_at <= $%d", len(args2)+1)
-			args2 = append(args2, *to)
-		}
-		_ = s.Pool.QueryRow(ctx, q2, args2...).Scan(&depositsCount, &depositsSum)
-
-		income := depositsSum * int64(revshareBps) / 10000
-
-		// Try to get user name/email from our users if external_user_id matches email? For now keep as is.
-		// Attempt to find in users table by external_user_id as email? Not reliable.
 		it.DepositsCount = depositsCount
 		it.DepositsSum = depositsSum
-		it.Income = income
+		it.Income = depositsSum * int64(revshareBps) / 10000
 		it.CommissionPercent = commissionPercent
-		// Name fallback: if we can find user by external_user_id in some mapping, not needed.
-
 		items = append(items, it)
-		sum += income
+		sum += it.Income
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, nil, err
 	}
 
-	// Sort by created_at desc
-	// Simple bubble sort by time parse
-	for i := 0; i < len(items); i++ {
-		for j := i + 1; j < len(items); j++ {
-			ti, _ := time.Parse(time.RFC3339, items[i].CreatedAt)
-			tj, _ := time.Parse(time.RFC3339, items[j].CreatedAt)
-			if tj.After(ti) {
-				items[i], items[j] = items[j], items[i]
-			}
-		}
-	}
-
-	// Apply string search filter? Handled at API level.
-
-	// Also need to handle kind filter? Keep all.
-
-	// For now, return all; pagination handled by API.
+	// Rows are already ordered by first_seen_at DESC; search filtering and
+	// pagination are applied by the caller (API layer).
 	total = len(items)
 	return total, sum, items, nil
 }
 
-// Helper to parse time range from query params (MSK).
+// ParseRange parses the time range from query params (MSK).
 func ParseRange(fromStr, toStr string) (from, to *time.Time) {
 	loc, _ := time.LoadLocation("Europe/Moscow")
 	if fromStr != "" {
@@ -209,6 +170,3 @@ func ParseRange(fromStr, toStr string) (from, to *time.Time) {
 	}
 	return
 }
-
-// Ensure imports used: strings is used? keep for future
-var _ = strings.TrimSpace

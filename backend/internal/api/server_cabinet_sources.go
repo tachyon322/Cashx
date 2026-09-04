@@ -86,6 +86,28 @@ func (s *Server) CabinetOfferSourcesList(w http.ResponseWriter, r *http.Request,
 	respond(w, http.StatusOK, out)
 }
 
+// CabinetSourcesList handles GET /cabinet/sources.
+func (s *Server) CabinetSourcesList(w http.ResponseWriter, r *http.Request) {
+	partnerID := partnerIDFrom(r)
+	items, err := s.Offers.ListAllSources(r.Context(), partnerID)
+	if err != nil {
+		writeErr(s.Log, w, err)
+		return
+	}
+	out := struct {
+		Items []gen.Source `json:"items"`
+	}{Items: make([]gen.Source, 0, len(items))}
+	for _, it := range items {
+		resp := sourceResponse(it)
+		if it.OfferID != "" {
+			offerID := it.OfferID
+			resp.OfferId = &offerID
+		}
+		out.Items = append(out.Items, resp)
+	}
+	respond(w, http.StatusOK, out)
+}
+
 // CabinetOfferSourceCreate handles POST /cabinet/offers/{offerId}/sources.
 func (s *Server) CabinetOfferSourceCreate(w http.ResponseWriter, r *http.Request, offerId string) {
 	var body gen.SourceInput

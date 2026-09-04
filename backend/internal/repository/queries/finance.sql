@@ -102,6 +102,3 @@ RETURNING id, commission_earning_id, partner_referral_id, referrer_partner_id, i
 
 -- name: SumRewardsByReferrer :one
 SELECT COALESCE(sum(amount_kopecks), 0)::bigint FROM referral_rewards WHERE referrer_partner_id = $1 AND reversed_at IS NULL;
-
--- name: SumRewardsByInvited :one
-SELECT COALESCE(sum(amount_kopecks), 0)::bigint FROM referral_rewards WHERE invited_partner_id = $1 AND reversed_at IS NULL;
