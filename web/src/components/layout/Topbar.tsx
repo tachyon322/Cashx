@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, HelpCircle, LogOut, Menu } from 'lucide-react'
-import { useLocation } from 'react-router-dom'
+import { ChevronDown, LogOut, Menu, Wallet } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
+import { useSummary } from '../../api/queries'
+import { formatRubles } from '../../lib/format'
 import { NotificationsBell } from '../NotificationsBell'
 
 const TITLES: readonly (readonly [prefix: string, title: string])[] = [
@@ -27,6 +29,31 @@ function usePageTitle(): string {
   const { pathname } = useLocation()
   const hit = TITLES.find(([prefix]) => pathname.startsWith(prefix))
   return hit?.[1] ?? 'CashX'
+}
+
+function BalanceChip() {
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const hasPartnerCabinet = user?.partner != null
+  const { data } = useSummary({ enabled: hasPartnerCabinet })
+
+  if (!hasPartnerCabinet) return null
+  const available = data?.balance?.available_kopecks
+  if (available == null) return null
+  const reserved = data?.balance?.reserved_kopecks ?? 0
+
+  return (
+    <button
+      type="button"
+      className="flex cursor-pointer items-center gap-1.5 rounded-full border border-border bg-surface-1 px-3 py-[7px] text-text transition-colors duration-150 hover:bg-surface-hover"
+      onClick={() => navigate('/cabinet/payouts')}
+      title={`Доступно ${formatRubles(available)} · В ожидании ${formatRubles(reserved)} — перейти к выплатам`}
+      aria-label="Баланс, перейти к выплатам"
+    >
+      <Wallet size={14} className="shrink-0 text-success" />
+      <span className="whitespace-nowrap text-[12px] font-semibold">{formatRubles(available)}</span>
+    </button>
+  )
 }
 
 function UserChip() {
@@ -124,14 +151,8 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
         <span className="truncate text-[16px] font-semibold text-text md:hidden">{usePageTitle()}</span>
       </div>
       <div className="flex items-center gap-2.5">
+        {hasPartnerCabinet && <BalanceChip />}
         {hasPartnerCabinet && <NotificationsBell />}
-        <button
-          type="button"
-          className="hidden h-8 w-8 items-center justify-center rounded-md border border-border bg-surface-1 text-muted hover:bg-surface-hover hover:text-text md:inline-flex"
-          aria-label="Помощь"
-        >
-          <HelpCircle size={16} />
-        </button>
         <UserChip />
       </div>
     </header>

@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiRequestError, unwrap } from './client'
 import type { components } from './schema'
@@ -103,11 +102,12 @@ export function useProfile() {
   return useMe()
 }
 
-export function useSummary() {
+export function useSummary(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['summary'],
     queryFn: () => guarded(() => unwrap(api.GET('/cabinet/summary'))),
     retry: 1,
+    enabled: options?.enabled ?? true,
   })
 }
 
