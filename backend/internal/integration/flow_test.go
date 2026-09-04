@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"cashx/internal/tracking"
 )
 
 // refCodeRe matches the short referral-code format shared by partners and
@@ -254,6 +256,82 @@ func TestAttributionAndCommission(t *testing.T) {
 	resp, body = sendEvent(t, data.Partner, url, data.KeyID, data.Secret, ev)
 	if !strings.Contains(string(body), "no_attribution") {
 		t.Fatalf("no attribution: %d %s", resp.StatusCode, body)
+	}
+}
+
+// TestDepositsCountEveryTopUp checks that daily first_payments counts every
+// deposit event (fact of top-up), not first-ever payments per player: two
+// revenue.confirmed from the same user on the same day must give
+// first_payments = 2 in daily stats, summary funnel and per-source totals.
+func TestDepositsCountEveryTopUp(t *testing.T) {
+	pool := setup(t)
+	data, apiSrv, _ := fullSetup(t, pool)
+	url := apiSrv.URL + "/api/v1/integrations/events"
+
+	ev := eventBase("user-9", "evt-user-9-reg")
+	ev["type"] = "registration.created"
+	ev["click_token"] = data.ClickToken
+	resp, body := sendEvent(t, data.Partner, url, data.KeyID, data.Secret, ev)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("registration: %d %s", resp.StatusCode, body)
+	}
+	for i, payID := range []string{"pay-9a", "pay-9b"} {
+		ev = eventBase("user-9", "evt-user-9-rev-"+payID)
+		ev["type"] = "revenue.confirmed"
+		ev["external_payment_id"] = payID
+		ev["amount_kopecks"] = 100000
+		ev["currency"] = "RUB"
+		resp, body = sendEvent(t, data.Partner, url, data.KeyID, data.Secret, ev)
+		if resp.StatusCode != http.StatusAccepted || !strings.Contains(string(body), "accepted") {
+			t.Fatalf("revenue %d: %d %s", i, resp.StatusCode, body)
+		}
+	}
+
+	from := time.Now().Add(-48 * time.Hour)
+	to := time.Now().Add(24 * time.Hour)
+	if err := tracking.RecomputeDailyStats(t.Context(), pool, from, to); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+
+	var fp int64
+	if err := pool.QueryRow(t.Context(),
+		`SELECT first_payments FROM daily_partner_offer_stats WHERE partner_id=$1 AND offer_id=$2`,
+		data.PartnerID, data.Offer,
+	).Scan(&fp); err != nil {
+		t.Fatalf("daily stats: %v", err)
+	}
+	if fp != 2 {
+		t.Fatalf("daily first_payments: want 2 (every top-up), got %d", fp)
+	}
+
+	resp, body = doJSON(t, data.Partner, "GET", apiSrv.URL+"/api/v1/cabinet/summary", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("summary: %d %s", resp.StatusCode, body)
+	}
+	var summary struct {
+		Funnel struct {
+			FirstPayments int64 `json:"first_payments"`
+		} `json:"funnel"`
+	}
+	_ = json.Unmarshal(body, &summary)
+	if summary.Funnel.FirstPayments != 2 {
+		t.Fatalf("summary funnel first_payments: want 2, got %d", summary.Funnel.FirstPayments)
+	}
+
+	resp, body = doJSON(t, data.Partner, "GET", apiSrv.URL+"/api/v1/cabinet/offers/"+data.Offer+"/sources", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sources: %d %s", resp.StatusCode, body)
+	}
+	var sources struct {
+		Items []struct {
+			Totals struct {
+				FirstPayments int64 `json:"first_payments"`
+			} `json:"totals"`
+		} `json:"items"`
+	}
+	_ = json.Unmarshal(body, &sources)
+	if len(sources.Items) != 1 || sources.Items[0].Totals.FirstPayments != 2 {
+		t.Fatalf("source totals first_payments: want [2], got %+v", sources.Items)
 	}
 }
 

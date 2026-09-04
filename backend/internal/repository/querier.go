@@ -14,7 +14,16 @@ type Querier interface {
 	// Worker aggregation sources.
 	AggClicksByDay(ctx context.Context, arg AggClicksByDayParams) ([]AggClicksByDayRow, error)
 	AggClicksByLink(ctx context.Context, arg AggClicksByLinkParams) ([]AggClicksByLinkRow, error)
+	// NOTE: despite the legacy column name, this counts EVERY deposit event
+	// (conversion_events row = one real money top-up, see processConfirmed),
+	// not first-ever payments per player. The dashboard "Deposits" cards must
+	// reflect the fact of top-up: a repeat deposit by an existing player brings
+	// income with no "first payment", so counting only firsts made income and
+	// deposits diverge (e.g. income today with 0 deposits).
 	AggFirstPaymentsByDay(ctx context.Context, arg AggFirstPaymentsByDayParams) ([]AggFirstPaymentsByDayRow, error)
+	// Same as AggFirstPaymentsByDay but per traffic source: counts EVERY deposit
+	// event (see note above), resolving the link from the attribution with the
+	// click as fallback.
 	AggFirstPaymentsByLink(ctx context.Context, arg AggFirstPaymentsByLinkParams) ([]AggFirstPaymentsByLinkRow, error)
 	AggIncomeByDay(ctx context.Context, arg AggIncomeByDayParams) ([]AggIncomeByDayRow, error)
 	AggIncomeByLink(ctx context.Context, arg AggIncomeByLinkParams) ([]AggIncomeByLinkRow, error)

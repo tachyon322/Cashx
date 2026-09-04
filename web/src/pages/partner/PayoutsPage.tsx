@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Clock, Wallet, ArrowUpRight, Copy, Filter, CalendarDays, Download } from 'lucide-react'
+import { Clock, Wallet, ArrowUpRight, Copy, Filter, CalendarDays } from 'lucide-react'
 import { ApiRequestError } from '../../api/client'
-import { useCabinetTransactions, useCancelPayout, usePayoutConfig, usePayouts, useRequestPayout } from '../../api/queries'
+import { useCancelPayout, usePayoutConfig, usePayouts, useRequestPayout } from '../../api/queries'
 import type { PayoutRequestInput } from '../../api/queries'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
@@ -20,14 +20,6 @@ import { withdrawalStatus } from '../../lib/status'
 import type { components } from '../../api/schema'
 
 type WithdrawalRequest = components['schemas']['WithdrawalRequest']
-type LedgerEntry = components['schemas']['LedgerEntry']
-
-const LEDGER_LABELS: Record<string, string> = {
-  commission: 'Комиссия',
-  referral_reward: 'Реферальная награда',
-  reversal: 'Отмена',
-  withdrawal: 'Вывод',
-}
 
 function PayoutsSkeleton() {
   return (
@@ -52,7 +44,6 @@ export function PayoutsPage() {
   const toast = useToast()
   const payoutsQuery = usePayouts()
   const configQuery = usePayoutConfig()
-  const txQuery = useCabinetTransactions()
   const request = useRequestPayout()
   const cancel = useCancelPayout()
 
@@ -87,17 +78,15 @@ export function PayoutsPage() {
   if (payoutsQuery.error || configQuery.error)
     return <EmptyState title="Не удалось загрузить данные" hint="Попробуйте обновить страницу через несколько секунд" />
 
-  const txItems = txQuery.data?.items ?? []
-
   const balance = payoutsQuery.data?.balance
   const requests = payoutsQuery.data?.requests ?? []
-  const history = payoutsQuery.data?.history ?? []
 
-  // derived stats for top cards
+  // derived stats for top cards (from paid withdrawal requests)
   const available = balance?.available_kopecks ?? 0
   const reserved = balance?.reserved_kopecks ?? 0
-  const totalPaid = history.filter((h) => h.type === 'withdrawal' && (h.amount_kopecks ?? 0) < 0).reduce((a, h) => a + Math.abs(h.amount_kopecks ?? 0), 0)
-  const totalOps = requests.filter((r) => r.status === 'paid').length || history.filter((h) => h.type === 'withdrawal').length
+  const paidRequests = requests.filter((r) => r.status === 'paid')
+  const totalPaid = paidRequests.reduce((a, r) => a + (r.amount_kopecks ?? 0), 0)
+  const totalOps = paidRequests.length
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -251,13 +240,6 @@ export function PayoutsPage() {
     },
   ]
 
-  const historyColumns: readonly TableColumn<LedgerEntry>[] = [
-    { key: 'type', header: 'Тип', render: (row) => (row.type ? (LEDGER_LABELS[row.type] ?? row.type) : '—') },
-    { key: 'amount', header: 'Сумма', align: 'right', render: (row) => formatRubles(row.amount_kopecks ?? 0) },
-    { key: 'balance', header: 'Баланс после', align: 'right', render: (row) => formatRubles(row.balance_after_kopecks ?? 0) },
-    { key: 'created', header: 'Дата', render: (row) => (row.created_at ? formatDateTime(row.created_at) : '—') },
-  ]
-
   return (
     <div className="flex flex-col gap-4">
       {/* top 4 cards */}
@@ -342,8 +324,7 @@ export function PayoutsPage() {
       <Card
         neon
         className="overflow-hidden p-0"
-        title={<span className="px-4 pt-4 text-[12px] font-bold uppercase tracking-[0.08em]">История выплат</span>}
-        actions={
+        title={<span className="px-4 pt-4 text-[12px] font-bold uppercase tracking-[0.08em]">История выплат</span>}        actions={
           <div className="hidden items-center gap-2 pr-4 pt-4 md:flex">
             <select className="h-8 rounded-md border border-[rgba(168,85,247,0.22)] bg-surface-0 px-3 text-[12px]">
               <option>Все статусы</option>
@@ -375,56 +356,6 @@ export function PayoutsPage() {
           </div>
         )}
       </Card>
-
-      {/* Ledger as second table like before */}
-      <Card
-        neon
-        title={<span className="text-[12px] font-bold uppercase tracking-[0.08em]">История операций</span>}
-        subtitle="Движения по балансу"
-        actions={
-          <a
-            href="/api/v1/cabinet/transactions?format=csv"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[rgba(168,85,247,0.22)] bg-surface-0 px-3 text-[12px] text-muted hover:text-text"
-          >
-            <Download size={14} /> CSV
-          </a>
-        }
-      >
-        {history.length === 0 ? (
-          <EmptyState title="Операций пока нет" hint="Здесь появятся начисления и списания" />
-        ) : (
-          <Table columns={historyColumns} rows={history} rowKey={(r) => r.id ?? `${r.created_at}-${r.type}`} compact />
-        )}
-      </Card>
-
-      {txItems.length > 0 && (
-        <Card
-          neon
-          title={<span className="text-[12px] font-bold uppercase tracking-[0.08em]">Транзакции (200)</span>}
-          subtitle="Последние 200 движений кошелька"
-          actions={
-            <a
-              href="/api/v1/cabinet/transactions?format=csv"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[rgba(168,85,247,0.22)] bg-surface-0 px-3 text-[12px] text-muted hover:text-text"
-            >
-              <Download size={14} /> CSV (200)
-            </a>
-          }
-        >
-          <Table
-            columns={
-              [
-                { key: 'type', header: 'Тип', render: (row: any) => LEDGER_LABELS[row.type] ?? row.type },
-                { key: 'amount', header: 'Сумма', align: 'right', render: (row: any) => formatRubles(row.amount_kopecks) },
-                { key: 'created', header: 'Дата', render: (row: any) => (row.created_at ? formatDateTime(row.created_at) : '—') },
-              ] as any
-            }
-            rows={txItems as any}
-            rowKey={(r: any) => r.id}
-            compact
-          />
-        </Card>
-      )}
 
       {/* Request modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Запросить выплату">

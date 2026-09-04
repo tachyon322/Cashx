@@ -39,7 +39,10 @@ func RecomputeDailyStats(ctx context.Context, pool *pgxpool.Pool, from, to time.
 		if err != nil {
 			return err
 		}
-		firsts, err := q.AggFirstPaymentsByDay(ctx, repository.AggFirstPaymentsByDayParams{OccurredAt: repository.TimePtr(&from), OccurredAt_2: repository.TimePtr(&to)})
+		// "FirstPayments" counts every deposit event (conversion_events row),
+	// not first-ever payments per player — the dashboard Deposits cards must
+	// show the fact of top-up (see AggFirstPaymentsByDay).
+	firsts, err := q.AggFirstPaymentsByDay(ctx, repository.AggFirstPaymentsByDayParams{OccurredAt: repository.TimePtr(&from), OccurredAt_2: repository.TimePtr(&to)})
 		if err != nil {
 			return err
 		}

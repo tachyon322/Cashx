@@ -98,15 +98,11 @@ func (q *Queries) AggClicksByLink(ctx context.Context, arg AggClicksByLinkParams
 }
 
 const aggFirstPaymentsByDay = `-- name: AggFirstPaymentsByDay :many
-SELECT a.partner_id, a.offer_id, fp.day, count(*)::bigint AS first_payments
-FROM (
-    SELECT attribution_id, (min(occurred_at) AT TIME ZONE 'Europe/Moscow')::date AS day
-    FROM conversion_events
-    WHERE occurred_at >= $1 AND occurred_at < $2
-    GROUP BY attribution_id
-) fp
-JOIN external_user_attributions a ON a.id = fp.attribution_id
-GROUP BY a.partner_id, a.offer_id, fp.day
+SELECT a.partner_id, a.offer_id, (ce.occurred_at AT TIME ZONE 'Europe/Moscow')::date AS day, count(*)::bigint AS first_payments
+FROM conversion_events ce
+JOIN external_user_attributions a ON a.id = ce.attribution_id
+WHERE ce.occurred_at >= $1 AND ce.occurred_at < $2
+GROUP BY a.partner_id, a.offer_id, day
 `
 
 type AggFirstPaymentsByDayParams struct {
@@ -121,6 +117,12 @@ type AggFirstPaymentsByDayRow struct {
 	FirstPayments int64       `json:"first_payments"`
 }
 
+// NOTE: despite the legacy column name, this counts EVERY deposit event
+// (conversion_events row = one real money top-up, see processConfirmed),
+// not first-ever payments per player. The dashboard "Deposits" cards must
+// reflect the fact of top-up: a repeat deposit by an existing player brings
+// income with no "first payment", so counting only firsts made income and
+// deposits diverge (e.g. income today with 0 deposits).
 func (q *Queries) AggFirstPaymentsByDay(ctx context.Context, arg AggFirstPaymentsByDayParams) ([]AggFirstPaymentsByDayRow, error) {
 	rows, err := q.db.Query(ctx, aggFirstPaymentsByDay, arg.OccurredAt, arg.OccurredAt_2)
 	if err != nil {
@@ -147,17 +149,14 @@ func (q *Queries) AggFirstPaymentsByDay(ctx context.Context, arg AggFirstPayment
 }
 
 const aggFirstPaymentsByLink = `-- name: AggFirstPaymentsByLink :many
-SELECT COALESCE(a.tracking_link_id, c.tracking_link_id) AS tracking_link_id, fp.day, count(*)::bigint AS first_payments
-FROM (
-    SELECT attribution_id, (min(occurred_at) AT TIME ZONE 'Europe/Moscow')::date AS day
-    FROM conversion_events
-    WHERE occurred_at >= $1 AND occurred_at < $2
-    GROUP BY attribution_id
-) fp
-JOIN external_user_attributions a ON a.id = fp.attribution_id
+SELECT COALESCE(a.tracking_link_id, c.tracking_link_id) AS tracking_link_id,
+       (ce.occurred_at AT TIME ZONE 'Europe/Moscow')::date AS day, count(*)::bigint AS first_payments
+FROM conversion_events ce
+JOIN external_user_attributions a ON a.id = ce.attribution_id
 LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
-WHERE COALESCE(a.tracking_link_id, c.tracking_link_id) IS NOT NULL
-GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id), fp.day
+WHERE ce.occurred_at >= $1 AND ce.occurred_at < $2
+  AND COALESCE(a.tracking_link_id, c.tracking_link_id) IS NOT NULL
+GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id), day
 `
 
 type AggFirstPaymentsByLinkParams struct {
@@ -171,6 +170,9 @@ type AggFirstPaymentsByLinkRow struct {
 	FirstPayments  int64       `json:"first_payments"`
 }
 
+// Same as AggFirstPaymentsByDay but per traffic source: counts EVERY deposit
+// event (see note above), resolving the link from the attribution with the
+// click as fallback.
 func (q *Queries) AggFirstPaymentsByLink(ctx context.Context, arg AggFirstPaymentsByLinkParams) ([]AggFirstPaymentsByLinkRow, error) {
 	rows, err := q.db.Query(ctx, aggFirstPaymentsByLink, arg.OccurredAt, arg.OccurredAt_2)
 	if err != nil {
