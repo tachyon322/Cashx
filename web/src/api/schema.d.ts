@@ -713,6 +713,23 @@ export interface paths {
         patch: operations["adminAnnouncementUpdate"];
         trace?: never;
     };
+    "/public/branding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Platform branding (public) */
+        get: operations["publicBrandingGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/platform/branding": {
         parameters: {
             query?: never;
@@ -2681,6 +2698,26 @@ export interface operations {
                 };
             };
             404: components["responses"]["Error"];
+        };
+    };
+    publicBrandingGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Branding"];
+                };
+            };
         };
     };
     adminBrandingGet: {

@@ -30,6 +30,9 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 		httpjson.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	// Public (no session): platform branding for cabinet + login page.
+	r.Get("/api/v1/public/branding", s.PublicBranding)
+
 	w := &gen.ServerInterfaceWrapper{Handler: s}
 	r.Route("/api/v1", func(r chi.Router) {
 		// Auth (no session required).

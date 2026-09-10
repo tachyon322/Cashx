@@ -344,21 +344,15 @@ func (s *Service) GetNotifications(ctx context.Context, userID, partnerID string
 	if err != nil {
 		return nil, 0, err
 	}
-	personal, err := q.ListUserNotifications(ctx, repository.ListUserNotificationsParams{UserID: userID, Limit: 50})
-	if err != nil {
-		return nil, 0, err
-	}
 	announcements, err := q.ListVisibleAnnouncements(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	for _, n := range personal {
-		read := n.ReadAt.Valid
-		items = append(items, NotificationsItem{
-			ID: n.ID, Type: "personal", Title: n.Title, Body: n.Body,
-			CreatedAt: n.CreatedAt.Time.UTC().Format(time.RFC3339), Read: read,
-		})
+	personal, err := q.ListUserNotifications(ctx, repository.ListUserNotificationsParams{UserID: userID, Limit: 50})
+	if err != nil {
+		return nil, 0, err
 	}
+	// Анонсы идут в начале списка, личные уведомления — после них.
 	// Announcement reads are joined per reader; partner-specific audience
 	// visibility is resolved via announcement_audiences.
 	for _, a := range announcements {
@@ -391,6 +385,13 @@ func (s *Service) GetNotifications(ctx context.Context, userID, partnerID string
 		if !read {
 			unreadN++
 		}
+	}
+	for _, n := range personal {
+		read := n.ReadAt.Valid
+		items = append(items, NotificationsItem{
+			ID: n.ID, Type: "personal", Title: n.Title, Body: n.Body,
+			CreatedAt: n.CreatedAt.Time.UTC().Format(time.RFC3339), Read: read,
+		})
 	}
 	return items, int(unreadN), nil
 }

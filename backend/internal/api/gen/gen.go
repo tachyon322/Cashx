@@ -1484,6 +1484,9 @@ type ServerInterface interface {
 	// IntegrationsEvent Ingest a signed project event
 	// (POST /integrations/events)
 	IntegrationsEvent(w http.ResponseWriter, r *http.Request)
+	// PublicBrandingGet Platform branding (public)
+	// (GET /public/branding)
+	PublicBrandingGet(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -1853,6 +1856,12 @@ func (_ Unimplemented) CabinetSummary(w http.ResponseWriter, r *http.Request) {
 // IntegrationsEvent Ingest a signed project event
 // (POST /integrations/events)
 func (_ Unimplemented) IntegrationsEvent(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// PublicBrandingGet Platform branding (public)
+// (GET /public/branding)
+func (_ Unimplemented) PublicBrandingGet(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3504,6 +3513,20 @@ func (siw *ServerInterfaceWrapper) IntegrationsEvent(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// PublicBrandingGet operation middleware
+func (siw *ServerInterfaceWrapper) PublicBrandingGet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublicBrandingGet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -3775,6 +3798,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/admin/announcements/{id}", wrapper.AdminAnnouncementUpdate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/public/branding", wrapper.PublicBrandingGet)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/admin/platform/branding", wrapper.AdminBrandingGet)

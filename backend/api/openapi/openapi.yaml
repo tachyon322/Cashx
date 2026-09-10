@@ -1314,6 +1314,17 @@ paths:
           description: No content
         '404':
           $ref: '#/components/responses/Error'
+  /public/branding:
+    get:
+      operationId: publicBrandingGet
+      summary: Platform branding (public)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branding'
   /admin/platform/branding:
     get:
       operationId: adminBrandingGet

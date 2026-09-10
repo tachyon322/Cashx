@@ -312,8 +312,7 @@ func (s *Service) processConfirmed(ctx context.Context, tq *repository.Queries, 
 	if err != nil {
 		return ProcessResult{}, err
 	}
-	if err := s.credit(ctx, tq, attrPartnerID, "commission", earning, conv.ID, nil, nil,
-		"Начислена комиссия", "Комиссия по офферу"); err != nil {
+	if err := s.credit(ctx, tq, attrPartnerID, "commission", earning, conv.ID, nil, nil); err != nil {
 		return ProcessResult{}, err
 	}
 
@@ -338,8 +337,7 @@ func (s *Service) processConfirmed(ctx context.Context, tq *repository.Queries, 
 				if err != nil {
 					return ProcessResult{}, err
 				}
-				if err := s.credit(ctx, tq, ref.ReferrerPartnerID, "referral_reward", reward, 0, nil, &rewardRow.ID,
-					"Реферальное вознаграждение", "Вознаграждение за партнёра"); err != nil {
+				if err := s.credit(ctx, tq, ref.ReferrerPartnerID, "referral_reward", reward, 0, nil, &rewardRow.ID); err != nil {
 					return ProcessResult{}, err
 				}
 			}
@@ -399,8 +397,10 @@ func (s *Service) processReversed(ctx context.Context, tq *repository.Queries, p
 	return ProcessResult{Status: "accepted"}, nil
 }
 
-// credit adds money to a partner's wallet with a ledger entry and notification.
-func (s *Service) credit(ctx context.Context, tq *repository.Queries, partnerID, entryType string, amount int64, convID int64, withdrawalID *string, rewardID *string, title, body string) error {
+// credit adds money to a partner's wallet with a ledger entry. Начисления
+// (комиссия, реферальное вознаграждение) НЕ создают уведомлений — партнёр
+// получает в колокольчике только уведомления о выплатах.
+func (s *Service) credit(ctx context.Context, tq *repository.Queries, partnerID, entryType string, amount int64, convID int64, withdrawalID *string, rewardID *string) error {
 	wallet, err := tq.GetWalletByPartnerID(ctx, partnerID)
 	if err != nil {
 		return err
@@ -418,11 +418,7 @@ func (s *Service) credit(ctx context.Context, tq *repository.Queries, partnerID,
 	}); err != nil {
 		return err
 	}
-	userID, err := tq.GetUserIDByPartnerID(ctx, partnerID)
-	if err != nil {
-		return err
-	}
-	return notifications.NotifyUser(ctx, tq, userID, entryType, title, body, nil)
+	return nil
 }
 
 // debit subtracts money (available may go negative — debt) with a ledger entry.
