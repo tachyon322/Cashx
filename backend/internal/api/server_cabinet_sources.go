@@ -1,11 +1,17 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
 	"cashx/internal/api/gen"
 	"cashx/internal/offers"
+	"cashx/internal/platform"
 )
 
 func parseRFC3339(s string) *time.Time {
@@ -129,9 +135,9 @@ func (s *Server) CabinetOfferSourceCreate(w http.ResponseWriter, r *http.Request
 	} else {
 		// link with optional domain/redirect
 		if body.Domain != nil || body.RedirectId != nil {
-			src, err = s.Offers.CreateLinkSource(r.Context(), partnerID, offerId, body.Name, body.Code, body.Comment, body.GroupId, body.Domain, body.RedirectId, isDefault)
+			src, err = s.Offers.CreateLinkSource(r.Context(), partnerID, offerId, body.Name, body.Code, body.RegistrationBonus, body.Comment, body.GroupId, body.Domain, body.RedirectId, isDefault)
 		} else {
-			src, err = s.Offers.CreateSource(r.Context(), partnerID, offerId, body.Name, body.Code, body.Comment, body.GroupId, isDefault)
+			src, err = s.Offers.CreateSource(r.Context(), partnerID, offerId, body.Name, body.Code, body.RegistrationBonus, body.Comment, body.GroupId, isDefault)
 		}
 	}
 	if err != nil {
@@ -143,16 +149,35 @@ func (s *Server) CabinetOfferSourceCreate(w http.ResponseWriter, r *http.Request
 
 // CabinetOfferSourceUpdate handles PATCH /cabinet/offers/{offerId}/sources/{sourceId}.
 func (s *Server) CabinetOfferSourceUpdate(w http.ResponseWriter, r *http.Request, offerId, sourceId string) {
-	var body gen.SourceUpdate
-	if err := decodeBody(r, &body); err != nil {
-		writeErr(s.Log, w, err)
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErr(s.Log, w, platform.ErrValidation)
 		return
 	}
+	var rawMap map[string]json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &rawMap); err != nil {
+		writeErr(s.Log, w, errors.Join(platform.ErrValidation, err))
+		return
+	}
+	dec := json.NewDecoder(bytes.NewReader(bodyBytes))
+	dec.DisallowUnknownFields()
+	var body gen.SourceUpdate
+	if err := dec.Decode(&body); err != nil {
+		writeErr(s.Log, w, errors.Join(platform.ErrValidation, err))
+		return
+	}
+
+	bonusRaw, bonusSpecified := rawMap["registration_bonus"]
+	if bonusSpecified && body.RegistrationBonus != nil && *body.RegistrationBonus < 0 {
+		writeErr(s.Log, w, fmt.Errorf("%w: invalid_bonus", platform.ErrValidation))
+		return
+	}
+
 	partnerID := partnerIDFrom(r)
 	isActive := body.IsActive == nil || *body.IsActive
 	isDefault := body.IsDefault != nil && *body.IsDefault
-	// If promo-specific fields present, try extended update
-	if body.Type != nil || body.RegistrationBonus != nil || body.Domain != nil || body.RedirectId != nil {
+	// If promo-specific or link-extended fields present, try extended update
+	if body.Type != nil || bonusSpecified || body.Domain != nil || body.RedirectId != nil {
 		// For now, handle code/name/comment/group/isActive/isDefault via existing UpdateSource
 		// and attempt to update extended fields via raw query if needed
 		src, err := s.Offers.UpdateSource(r.Context(), partnerID, offerId, sourceId, body.Name, body.Code, body.Comment, body.GroupId, isActive, isDefault)
@@ -170,23 +195,42 @@ func (s *Server) CabinetOfferSourceUpdate(w http.ResponseWriter, r *http.Request
 			}
 			body.Domain = norm
 		}
-		// Best-effort: update extended fields directly if provided
-		if body.RegistrationBonus != nil {
-			_, _ = s.Pool.Exec(r.Context(), `UPDATE tracking_links SET registration_bonus=$1 WHERE id=$2`, *body.RegistrationBonus, sourceId)
+		// Update registration_bonus if specified (either number or null)
+		if bonusSpecified {
+			if bytes.Equal(bytes.TrimSpace(bonusRaw), []byte("null")) {
+				if _, err := s.Pool.Exec(r.Context(), `UPDATE tracking_links SET registration_bonus=NULL WHERE id=$1`, sourceId); err != nil {
+					writeErr(s.Log, w, err)
+					return
+				}
+			} else if body.RegistrationBonus != nil {
+				if _, err := s.Pool.Exec(r.Context(), `UPDATE tracking_links SET registration_bonus=$1 WHERE id=$2`, *body.RegistrationBonus, sourceId); err != nil {
+					writeErr(s.Log, w, err)
+					return
+				}
+			}
 		}
 		if body.Domain != nil {
-			_, _ = s.Pool.Exec(r.Context(), `UPDATE tracking_links SET domain=$1 WHERE id=$2`, *body.Domain, sourceId)
+			if _, err := s.Pool.Exec(r.Context(), `UPDATE tracking_links SET domain=$1 WHERE id=$2`, *body.Domain, sourceId); err != nil {
+				writeErr(s.Log, w, err)
+				return
+			}
 		}
 		if body.RedirectId != nil {
-			_, _ = s.Pool.Exec(r.Context(), `UPDATE tracking_links SET redirect_id=$1::uuid WHERE id=$2`, *body.RedirectId, sourceId)
+			if _, err := s.Pool.Exec(r.Context(), `UPDATE tracking_links SET redirect_id=$1::uuid WHERE id=$2`, *body.RedirectId, sourceId); err != nil {
+				writeErr(s.Log, w, err)
+				return
+			}
 		}
 		// Re-fetch
-		if refreshed, err := s.Offers.ListSources(r.Context(), partnerID, offerId); err == nil {
-			for _, it := range refreshed {
-				if it.ID == sourceId {
-					src = it
-					break
-				}
+		refreshed, err := s.Offers.ListSources(r.Context(), partnerID, offerId)
+		if err != nil {
+			writeErr(s.Log, w, err)
+			return
+		}
+		for _, it := range refreshed {
+			if it.ID == sourceId {
+				src = it
+				break
 			}
 		}
 		respond(w, http.StatusOK, sourceResponse(src))

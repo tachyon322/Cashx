@@ -357,6 +357,9 @@ func fullSetup(t *testing.T, pool *pgxpool.Pool) (setupData, *httptest.Server, *
 	var clickToken string
 	if i := strings.Index(loc, "click_token="); i >= 0 {
 		clickToken = loc[i+len("click_token="):]
+		if j := strings.Index(clickToken, "&"); j >= 0 {
+			clickToken = clickToken[:j]
+		}
 	}
 	if clickToken == "" {
 		t.Fatalf("no click token in redirect: %s", loc)

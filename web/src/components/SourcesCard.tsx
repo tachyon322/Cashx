@@ -69,6 +69,9 @@ export function SourcesCard({ offerId }: { offerId: string }) {
               </span>
               <span className="truncate font-semibold text-text">{row.name ?? '—'}</span>
               {row.is_default && <Badge tone="violet">Основной</Badge>}
+              {row.registration_bonus != null && (
+                <Badge tone="success">Бонус {formatNumber(row.registration_bonus)} ₽</Badge>
+              )}
             </div>
             {!isPromo && row.url && (
               <div className="flex items-center gap-2 pl-8">

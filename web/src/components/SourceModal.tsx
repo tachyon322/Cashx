@@ -36,7 +36,7 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
   const [isActive, setIsActive] = useState(true)
   const [isDefault, setIsDefault] = useState(false)
   const [type, setType] = useState<'link' | 'promo'>('link')
-  const [bonus, setBonus] = useState(String(PROMO_BONUS_DEFAULT))
+  const [bonus, setBonus] = useState('')
   const [domain, setDomain] = useState('')
   const [redirectId, setRedirectId] = useState('')
 
@@ -53,10 +53,14 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
       setGroupId(initial.group_id ?? '')
       setIsActive(initial.is_active ?? true)
       setIsDefault(initial.is_default ?? false)
-      // try to infer type from existing source: if totals has promo? fallback to link
       const t = (initial as any).type ?? 'link'
       setType(t === 'promo' ? 'promo' : 'link')
-      setBonus(String((initial as any).registration_bonus ?? PROMO_BONUS_DEFAULT))
+      const initialBonus = (initial as any).registration_bonus
+      if (initialBonus !== undefined && initialBonus !== null) {
+        setBonus(String(initialBonus))
+      } else {
+        setBonus(t === 'promo' ? String(PROMO_BONUS_DEFAULT) : '')
+      }
       setDomain((initial as any).domain ?? '')
       setRedirectId((initial as any).redirect_id ?? '')
     } else {
@@ -67,11 +71,24 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
       setIsActive(true)
       setIsDefault(false)
       setType('link')
-      setBonus(String(PROMO_BONUS_DEFAULT))
+      setBonus('')
       setDomain('')
       setRedirectId('')
     }
   }, [open, initial])
+
+  const handleTypeChange = (newType: 'link' | 'promo') => {
+    setType(newType)
+    if (newType === 'promo') {
+      if (!bonus.trim()) {
+        setBonus(String(PROMO_BONUS_DEFAULT))
+      }
+    } else {
+      if (bonus === String(PROMO_BONUS_DEFAULT)) {
+        setBonus('')
+      }
+    }
+  }
 
   const saving = create.isPending || update.isPending
 
@@ -87,7 +104,7 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
       comment: comment.trim() || null,
       group_id: groupId || null,
     }
-    // Include promo-specific fields
+    // Include promo or link specific fields
     if (type === 'promo') {
       const nb = Number.parseInt(bonus, 10)
       if (!Number.isFinite(nb) || nb < 0) {
@@ -100,6 +117,16 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
       basePayload.type = 'link'
       if (domain) basePayload.domain = domain
       if (redirectId) basePayload.redirect_id = redirectId
+      if (bonus.trim() !== '') {
+        const nb = Number.parseInt(bonus, 10)
+        if (!Number.isFinite(nb) || nb < 0) {
+          toast.error('Укажите корректный бонус или оставьте пустым')
+          return
+        }
+        basePayload.registration_bonus = nb
+      } else {
+        basePayload.registration_bonus = null
+      }
     }
     if (initial?.id) {
       update.mutate(
@@ -160,7 +187,7 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
         </Field>
 
         <Field label="Тип">
-          <Select value={type} onChange={(e) => setType(e.target.value as 'link' | 'promo')}>
+          <Select value={type} onChange={(e) => handleTypeChange(e.target.value as 'link' | 'promo')}>
             <option value="link">Ссылка</option>
             <option value="promo">Промокод</option>
           </Select>
@@ -172,6 +199,19 @@ export function SourceModal({ open, offerId, initial, groups, onClose }: SourceM
           </Field>
         ) : (
           <>
+            <Field
+              label="Бонус при регистрации, ₽"
+              hint="Оставьте пустым для стандартного приветственного бонуса казино"
+            >
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={bonus}
+                onChange={(e) => setBonus(e.target.value)}
+                placeholder="По умолчанию (бонус казино)"
+              />
+            </Field>
             {domains.length > 0 && (
               <Field
                 label="Домен"

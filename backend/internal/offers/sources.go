@@ -340,62 +340,8 @@ func (s *Service) totalsByLinkIDs(ctx context.Context, q *repository.Queries, li
 }
 
 // CreateSource adds a new source (custom tracking link) to a joined offer.
-func (s *Service) CreateSource(ctx context.Context, partnerID, offerID, name string, code, comment, groupID *string, isDefault bool) (Source, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return Source{}, fmt.Errorf("%w: invalid_name", platform.ErrValidation)
-	}
-	q := s.q(ctx)
-	access, err := s.accessForOffer(ctx, q, partnerID, offerID)
-	if err != nil {
-		return Source{}, err
-	}
-	normalized := ""
-	if code != nil {
-		if normalized, err = validateCode(*code); err != nil {
-			return Source{}, err
-		}
-	}
-	if normalized == "" {
-		normalized, err = genLinkCode(ctx, q)
-		if err != nil {
-			return Source{}, err
-		}
-	}
-	groupPg := repository.UUIDPtr(groupID)
-	if groupID != nil && *groupID != "" {
-		if _, err := s.ownedGroup(ctx, q, partnerID, *groupID); err != nil {
-			return Source{}, err
-		}
-	}
-	var link repository.TrackingLink
-	err = repository.WithTx(ctx, s.Pool, func(tq *repository.Queries) error {
-		link, err = tq.CreateTrackingLink(ctx, repository.CreateTrackingLinkParams{
-			PartnerOfferAccessID: access.ID,
-			Code:                 normalized,
-			Name:                 name,
-			Comment:              repository.TextPtr(comment),
-			GroupID:              groupPg,
-			IsDefault:            false,
-		})
-		if err != nil {
-			return err
-		}
-		if isDefault {
-			if err := tq.ClearDefaultTrackingLinks(ctx, access.ID); err != nil {
-				return err
-			}
-			return tq.SetDefaultTrackingLink(ctx, link.ID)
-		}
-		return nil
-	})
-	if err != nil {
-		if isUniqueViolation(err) {
-			return Source{}, fmt.Errorf("%w: code_taken", platform.ErrConflict)
-		}
-		return Source{}, err
-	}
-	return s.sourceByID(ctx, q, offerID, link.ID)
+func (s *Service) CreateSource(ctx context.Context, partnerID, offerID, name string, code *string, registrationBonus *int, comment, groupID *string, isDefault bool) (Source, error) {
+	return s.CreateLinkSource(ctx, partnerID, offerID, name, code, registrationBonus, comment, groupID, nil, nil, isDefault)
 }
 
 // UpdateSource mutates an existing source. code == nil/"" keeps the current code.

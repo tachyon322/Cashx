@@ -65,8 +65,8 @@ func (s *Service) CreatePromoSource(ctx context.Context, partnerID, offerID, nam
 }
 
 // CreateLinkSource creates a link-type tracking link with optional domain/redirect.
-func (s *Service) CreateLinkSource(ctx context.Context, partnerID, offerID, name string, code *string, comment, groupID *string, domain *string, redirectID *string, isDefault bool) (Source, error) {
-	return s.createSourceWithType(ctx, partnerID, offerID, name, code, comment, groupID, "link", nil, domain, redirectID, isDefault)
+func (s *Service) CreateLinkSource(ctx context.Context, partnerID, offerID, name string, code *string, registrationBonus *int, comment, groupID *string, domain *string, redirectID *string, isDefault bool) (Source, error) {
+	return s.createSourceWithType(ctx, partnerID, offerID, name, code, comment, groupID, "link", registrationBonus, domain, redirectID, isDefault)
 }
 
 // createSourceWithType is the internal helper handling both link and promo.
@@ -78,7 +78,7 @@ func (s *Service) createSourceWithType(ctx context.Context, partnerID, offerID, 
 	if typ != "link" && typ != "promo" {
 		return Source{}, fmt.Errorf("%w: invalid_type", platform.ErrValidation)
 	}
-	if typ == "promo" && registrationBonus != nil && *registrationBonus < 0 {
+	if registrationBonus != nil && *registrationBonus < 0 {
 		return Source{}, fmt.Errorf("%w: invalid_bonus", platform.ErrValidation)
 	}
 	q := s.q(ctx)
@@ -126,14 +126,6 @@ func (s *Service) createSourceWithType(ctx context.Context, partnerID, offerID, 
 			return Source{}, err
 		}
 	}
-	// Prepare registration_bonus pgtype
-	var bonusVal *int32
-	if registrationBonus != nil {
-		b := int32(*registrationBonus)
-		bonusVal = &b
-	}
-	// Need to handle domain and redirect as pgtype for insertion via full query
-	// Use CreateTrackingLinkFull for extended fields
 	var link repository.TrackingLink
 	err = repository.WithTx(ctx, s.Pool, func(tq *repository.Queries) error {
 		// Use full insert
@@ -147,7 +139,7 @@ func (s *Service) createSourceWithType(ctx context.Context, partnerID, offerID, 
 			IsDefault:            isDefault,
 			IsActive:             true,
 			Type:                 repository.TextPtr(&typ),
-			RegistrationBonus:    repository.Int32Ptr(bonusValToIntPtr(bonusVal)),
+			RegistrationBonus:    repository.Int32Ptr(registrationBonus),
 			Domain:               repository.TextPtr(domainVal),
 			RedirectID:           repository.UUIDPtr(redirectPtr),
 			LegacyKazikSourceID:  repository.TextPtr(nil),
@@ -170,12 +162,4 @@ func (s *Service) createSourceWithType(ctx context.Context, partnerID, offerID, 
 		return Source{}, err
 	}
 	return s.sourceByID(ctx, q, offerID, link.ID)
-}
-
-func bonusValToIntPtr(v *int32) *int {
-	if v == nil {
-		return nil
-	}
-	i := int(*v)
-	return &i
 }

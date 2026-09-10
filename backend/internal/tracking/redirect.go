@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -60,11 +61,20 @@ func NewRedirectHandler(d RedirectDeps) http.Handler {
 				http.Redirect(w, req, d.Cfg.FrontendOrigin, http.StatusFound)
 				return
 			}
+			dest, err := url.Parse(result.Destination)
+			if err == nil {
+				q := dest.Query()
+				q.Set("click_token", token)
+				q.Set("ref", code)
+				dest.RawQuery = q.Encode()
+				http.Redirect(w, req, dest.String(), http.StatusFound)
+				return
+			}
 			sep := "?"
 			if strings.Contains(result.Destination, "?") {
 				sep = "&"
 			}
-			http.Redirect(w, req, result.Destination+sep+"click_token="+token, http.StatusFound)
+			http.Redirect(w, req, result.Destination+sep+"click_token="+token+"&ref="+code, http.StatusFound)
 		}
 		r.Get("/c/{code}", handle)
 		r.Get("/r/{code}", handle)

@@ -517,6 +517,9 @@ func TestReferralReward(t *testing.T) {
 	loc := resp.Header.Get("Location")
 	resp.Body.Close()
 	token := loc[strings.Index(loc, "click_token=")+len("click_token="):]
+	if j := strings.Index(token, "&"); j >= 0 {
+		token = token[:j]
+	}
 
 	ev := eventBase("user-2", "evt-user-2-reg")
 	ev["type"] = "registration.created"
