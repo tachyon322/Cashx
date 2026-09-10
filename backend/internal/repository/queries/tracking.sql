@@ -24,6 +24,21 @@ FROM external_user_attributions WHERE project_id = $1 AND external_user_id = $2;
 -- name: EventLock :exec
 SELECT pg_advisory_xact_lock(hashtextextended($1, 0));
 
+-- name: InsertIncomingEventKey :execrows
+INSERT INTO incoming_event_keys (project_id, external_event_id)
+VALUES ($1, $2)
+ON CONFLICT (project_id, external_event_id) DO NOTHING;
+
+-- name: InsertConversionPaymentKey :execrows
+INSERT INTO conversion_event_payments (project_id, external_payment_id, conversion_event_id)
+VALUES ($1, $2, $3)
+ON CONFLICT (project_id, external_payment_id) DO NOTHING;
+
+-- name: SetConversionPaymentKeyEvent :exec
+UPDATE conversion_event_payments
+SET conversion_event_id = $3
+WHERE project_id = $1 AND external_payment_id = $2;
+
 -- name: InsertIncomingEvent :one
 INSERT INTO incoming_events (project_id, external_event_id, type, payload, status, reason)
 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, project_id, external_event_id, type, status, reason, received_at;
@@ -33,22 +48,28 @@ SELECT id, project_id, external_event_id, type, status, reason, received_at
 FROM incoming_events WHERE project_id = $1 AND external_event_id = $2;
 
 -- name: InsertConversion :one
-INSERT INTO conversion_events (project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, created_at;
+INSERT INTO conversion_events (project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, kind)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, kind, reversed_at, created_at;
 
 -- name: GetConversionByPayment :one
-SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, created_at
+SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, kind, reversed_at, created_at
 FROM conversion_events WHERE project_id = $1 AND external_payment_id = $2;
 
 -- name: GetConversionByEvent :one
-SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, created_at
+SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, kind, reversed_at, created_at
 FROM conversion_events WHERE project_id = $1 AND external_event_id = $2;
+
+-- name: SetConversionReversed :one
+UPDATE conversion_events
+SET reversed_at = now()
+WHERE id = $1 AND reversed_at IS NULL
+RETURNING id, project_id, external_event_id, external_payment_id, occurred_at, reversed_at;
 
 -- name: UpdateConversionNote :exec
 UPDATE conversion_events SET processing_note = $2 WHERE id = $1;
 
 -- name: ListConversionsByAttribution :many
-SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, created_at
+SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, kind, reversed_at, created_at
 FROM conversion_events WHERE attribution_id = $1 ORDER BY occurred_at;
 
 -- Daily stats (worker aggregates and cabinet reads).
@@ -150,6 +171,7 @@ SELECT a.partner_id, a.offer_id, (ce.occurred_at AT TIME ZONE 'Europe/Moscow')::
 FROM conversion_events ce
 JOIN external_user_attributions a ON a.id = ce.attribution_id
 WHERE ce.occurred_at >= $1 AND ce.occurred_at < $2
+  AND ce.reversed_at IS NULL
 GROUP BY a.partner_id, a.offer_id, day;
 
 -- name: AggIncomeByDay :many
@@ -256,8 +278,32 @@ FROM conversion_events ce
 JOIN external_user_attributions a ON a.id = ce.attribution_id
 LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
 WHERE ce.occurred_at >= $1 AND ce.occurred_at < $2
+  AND ce.reversed_at IS NULL
   AND COALESCE(a.tracking_link_id, c.tracking_link_id) IS NOT NULL
 GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id), day;
+
+-- name: BatchDepositsByLinksRange :many
+SELECT COALESCE(a.tracking_link_id, c.tracking_link_id)::uuid AS tracking_link_id,
+       count(*)::bigint AS deposits_count,
+       COALESCE(sum(ce.amount_kopecks), 0)::bigint AS deposits_sum
+FROM conversion_events ce
+JOIN external_user_attributions a ON a.id = ce.attribution_id
+LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
+WHERE COALESCE(a.tracking_link_id, c.tracking_link_id) = ANY($1::uuid[])
+  AND ce.occurred_at >= $2 AND ce.occurred_at < $3
+  AND ce.reversed_at IS NULL
+GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id);
+
+-- name: BatchDepositsByLinksAllTime :many
+SELECT COALESCE(a.tracking_link_id, c.tracking_link_id)::uuid AS tracking_link_id,
+       count(*)::bigint AS deposits_count,
+       COALESCE(sum(ce.amount_kopecks), 0)::bigint AS deposits_sum
+FROM conversion_events ce
+JOIN external_user_attributions a ON a.id = ce.attribution_id
+LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
+WHERE COALESCE(a.tracking_link_id, c.tracking_link_id) = ANY($1::uuid[])
+  AND ce.reversed_at IS NULL
+GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id);
 
 -- name: AggIncomeByLink :many
 SELECT tracking_link_id, (created_at AT TIME ZONE 'Europe/Moscow')::date AS day, sum(amount_kopecks)::bigint AS income_kopecks
@@ -290,6 +336,7 @@ FROM conversion_events ce
 JOIN external_user_attributions a ON a.id = ce.attribution_id
 WHERE a.tracking_link_id = $1
   AND ce.occurred_at >= $2 AND ce.occurred_at <= $3
+  AND ce.reversed_at IS NULL
 ORDER BY ce.occurred_at DESC LIMIT $4;
 
 -- name: HistoryEarningsByPartnerOffer :many

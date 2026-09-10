@@ -292,6 +292,49 @@ func (q *Queries) InsertCommissionEarning(ctx context.Context, arg InsertCommiss
 	return i, err
 }
 
+const insertCommissionEarningWithCreatedAt = `-- name: InsertCommissionEarningWithCreatedAt :one
+INSERT INTO commission_earnings (conversion_event_id, partner_id, offer_id, tracking_link_id, rate_bps, amount_kopecks, external_user_id, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, conversion_event_id, partner_id, offer_id, tracking_link_id, rate_bps, amount_kopecks, external_user_id, reversed_at, created_at
+`
+
+type InsertCommissionEarningWithCreatedAtParams struct {
+	ConversionEventID int64              `json:"conversion_event_id"`
+	PartnerID         string             `json:"partner_id"`
+	OfferID           string             `json:"offer_id"`
+	TrackingLinkID    pgtype.UUID        `json:"tracking_link_id"`
+	RateBps           int32              `json:"rate_bps"`
+	AmountKopecks     int64              `json:"amount_kopecks"`
+	ExternalUserID    string             `json:"external_user_id"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) InsertCommissionEarningWithCreatedAt(ctx context.Context, arg InsertCommissionEarningWithCreatedAtParams) (CommissionEarning, error) {
+	row := q.db.QueryRow(ctx, insertCommissionEarningWithCreatedAt,
+		arg.ConversionEventID,
+		arg.PartnerID,
+		arg.OfferID,
+		arg.TrackingLinkID,
+		arg.RateBps,
+		arg.AmountKopecks,
+		arg.ExternalUserID,
+		arg.CreatedAt,
+	)
+	var i CommissionEarning
+	err := row.Scan(
+		&i.ID,
+		&i.ConversionEventID,
+		&i.PartnerID,
+		&i.OfferID,
+		&i.TrackingLinkID,
+		&i.RateBps,
+		&i.AmountKopecks,
+		&i.ExternalUserID,
+		&i.ReversedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertLedgerEntry = `-- name: InsertLedgerEntry :one
 INSERT INTO wallet_ledger_entries (wallet_id, type, amount_kopecks, balance_after_kopecks, ref_conversion_event_id, ref_withdrawal_id, ref_referral_reward_id, comment)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, wallet_id, type, amount_kopecks, balance_after_kopecks, created_at

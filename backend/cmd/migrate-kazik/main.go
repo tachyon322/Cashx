@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"strings"
 	"time"
@@ -48,9 +47,11 @@ type CountReport struct {
 
 func main() {
 	var kazikURL, cashxURL, kazikProjectSlug string
+	var confirmColdImport bool
 	flag.StringVar(&kazikURL, "kazik-url", envOr("KAZIK_DATABASE_URL", envOr("DATABASE_URL", "")), "Kazik DATABASE_URL")
 	flag.StringVar(&cashxURL, "cashx-url", envOr("CASHX_ADMIN_DATABASE_URL", envOr("CASHX_DATABASE_URL", "")), "CashX ADMIN DATABASE_URL")
 	flag.StringVar(&kazikProjectSlug, "project", "kazik", "CashX project slug")
+	flag.BoolVar(&confirmColdImport, "i-confirm-cold-import", false, "Confirm cold import when database already has conversion events/payments")
 	flag.Parse()
 
 	if kazikURL == "" {
@@ -78,6 +79,14 @@ func main() {
 	}
 	if err := cashxPool.Ping(ctx); err != nil {
 		log.Fatalf("cashx ping: %v", err)
+	}
+
+	// Safety check: prevent accidental cold import into live system
+	var existingPaymentsCount int64
+	if err := cashxPool.QueryRow(ctx, `SELECT count(*) FROM conversion_event_payments`).Scan(&existingPaymentsCount); err == nil && existingPaymentsCount > 0 {
+		if !confirmColdImport {
+			log.Fatalf("conversion_event_payments has %d rows; migrate-kazik is a cold-import tool that could overwrite or duplicate active live data. Pass -i-confirm-cold-import to proceed anyway.", existingPaymentsCount)
+		}
 	}
 
 	// Resolve project and offer
@@ -583,12 +592,9 @@ func ensureAccesses(ctx context.Context, cashx *pgxpool.Pool, partnerMap map[str
 			accessMap[cashxPID] = accessID
 			continue
 		}
-		// need rate from partner profile
+		// need rate from partner profile; keep the real rate — 0 means 0
 		var bps int
 		_ = cashx.QueryRow(ctx, `SELECT revshare_percent_bps FROM partner_profiles WHERE id=$1`, cashxPID).Scan(&bps)
-		if bps == 0 {
-			bps = 4000
-		}
 		err = cashx.QueryRow(ctx, `INSERT INTO partner_offer_accesses (id, partner_id, offer_id, rate_bps, status) VALUES (gen_random_uuid(), $1, $2, $3, 'active') ON CONFLICT (partner_id, offer_id) DO UPDATE SET rate_bps=EXCLUDED.rate_bps RETURNING id`, cashxPID, offerID, bps).Scan(&accessID)
 		if err != nil {
 			// try select again
@@ -931,176 +937,123 @@ func migrateFinance(ctx context.Context, kazik, cashx *pgxpool.Pool, projectID, 
 			walletMap[k] = wid
 		}
 	}
-	// Transactions
-	rows, err := kazik.Query(ctx, `SELECT id, partner_id, type, amount, ref_user_id, deposit_amount, commission_percent, created_at FROM affiliate_transactions ORDER BY created_at`)
+	// Payments: only confirmed PAID deposits/gates with amount > 0
+	rows, err := kazik.Query(ctx, `SELECT id, user_id, amount, purpose, updated_at FROM payments WHERE status = 'PAID' AND credited = true AND amount > 0 ORDER BY updated_at`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	type t struct {
-		ID                string
-		PartnerID         string
-		Type              string
-		Amount            int
-		RefUserID         *string
-		DepositAmount     *int
-		CommissionPercent *float64
-		CreatedAt         time.Time
+	type pmt struct {
+		ID        string
+		UserID    string
+		Amount    int
+		Purpose   string
+		UpdatedAt time.Time
 	}
-	var txs []t
+	var payments []pmt
 	for rows.Next() {
-		var tr t
-		if err := rows.Scan(&tr.ID, &tr.PartnerID, &tr.Type, &tr.Amount, &tr.RefUserID, &tr.DepositAmount, &tr.CommissionPercent, &tr.CreatedAt); err != nil {
+		var p pmt
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Amount, &p.Purpose, &p.UpdatedAt); err != nil {
 			return err
 		}
-		txs = append(txs, tr)
+		payments = append(payments, p)
 	}
-	report.Transactions.Total = len(txs)
+	report.Transactions.Total = len(payments)
 
-	// For commission types, need to create conversion_events dummy if needed
-	for _, tr := range txs {
-		wid, ok := walletMap[tr.PartnerID]
-		if !ok {
+	for _, p := range payments {
+		var (
+			attributionID  int64
+			partnerID      string
+			attrOfferID    string
+			tcID           *int64
+			tlID           *string
+			trackingLinkID *string
+		)
+		err := cashx.QueryRow(ctx, `SELECT id, partner_id, offer_id, tracking_click_id, tracking_link_id FROM external_user_attributions WHERE project_id = $1 AND external_user_id = $2`, projectID, p.UserID).Scan(&attributionID, &partnerID, &attrOfferID, &tcID, &tlID)
+		if err != nil {
 			report.Transactions.Skipped++
 			continue
 		}
-		cashxPID := partnerMap[tr.PartnerID]
-		if tr.Type == "commission" {
-			// Need to find attribution for ref user
-			var attributionID *int64
-			var trackingLinkID *string
-			if tr.RefUserID != nil && *tr.RefUserID != "" {
-				var aid int64
-				var tcID *int64
-				err := cashx.QueryRow(ctx, `SELECT id, tracking_click_id FROM external_user_attributions WHERE project_id=$1 AND external_user_id=$2`, projectID, *tr.RefUserID).Scan(&aid, &tcID)
-				if err == nil {
-					attributionID = &aid
-					if tcID != nil {
-						var linkID string
-						var tmp int64 = *tcID
-						// find link via click
-						_ = cashx.QueryRow(ctx, `SELECT tracking_link_id FROM tracking_clicks WHERE id=$1`, tmp).Scan(&linkID)
-						if linkID != "" {
-							trackingLinkID = &linkID
-						}
-					}
-				}
-				if attributionID == nil {
-					// create dummy attribution if not exists (to satisfy FK)
-					var dummyLinkID string
-					// pick first link for partner if exists
-					for _, lid := range sourceMap {
-						// find one for this partner
-						var pid string
-						_ = cashx.QueryRow(ctx, `SELECT partner_id FROM partner_offer_accesses WHERE id=(SELECT partner_offer_access_id FROM tracking_links WHERE id=$1)`, lid).Scan(&pid)
-						if pid == cashxPID {
-							dummyLinkID = lid
-							break
-						}
-					}
-					var tc *int64
-					// create dummy attribution with first_seen = createdAt
-					var newAID int64
-					err = cashx.QueryRow(ctx, `INSERT INTO external_user_attributions (project_id, external_user_id, partner_id, offer_id, tracking_click_id, tracking_link_id, first_seen_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (project_id, external_user_id) DO UPDATE SET partner_id=EXCLUDED.partner_id RETURNING id`, projectID, *tr.RefUserID, cashxPID, offerID, tc, dummyLinkID, tr.CreatedAt).Scan(&newAID)
-					if err == nil {
-						attributionID = &newAID
-						if dummyLinkID != "" {
-							trackingLinkID = &dummyLinkID
-						}
-					}
-				}
+		if tlID != nil && *tlID != "" {
+			trackingLinkID = tlID
+		} else if tcID != nil {
+			var linkID string
+			_ = cashx.QueryRow(ctx, `SELECT tracking_link_id FROM tracking_clicks WHERE id = $1`, *tcID).Scan(&linkID)
+			if linkID != "" {
+				trackingLinkID = &linkID
 			}
-			if attributionID == nil {
-				// fallback dummy attribution for unknown user
-				var newAID int64
-				err = cashx.QueryRow(ctx, `INSERT INTO external_user_attributions (project_id, external_user_id, partner_id, offer_id, first_seen_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (project_id, external_user_id) DO UPDATE SET partner_id=EXCLUDED.partner_id RETURNING id`, projectID, fmt.Sprintf("unknown-%s", tr.ID), cashxPID, offerID, tr.CreatedAt).Scan(&newAID)
-				if err == nil {
-					attributionID = &newAID
-				}
-			}
-			if attributionID == nil {
-				report.Transactions.Failed++
-				continue
-			}
-			// Create conversion_events if not exists
-			var convID int64
-			amountKopecks := int64(tr.Amount) * 100 // kazik stores rubles, cashx expects kopecks
-			// If depositAmount present, use depositAmount for conversion, but commission amount is tr.Amount
-			conversionAmount := amountKopecks
-			if tr.DepositAmount != nil && *tr.DepositAmount > 0 {
-				conversionAmount = int64(*tr.DepositAmount) * 100
-				// Some kazik rows have depositAmount in kop? Already.
-			} else if tr.CommissionPercent != nil && *tr.CommissionPercent > 0 {
-				// derive deposit from commission: amount = deposit * percent /100 => deposit = amount*100/percent
-				if *tr.CommissionPercent != 0 {
-					conversionAmount = int64(math.Round(float64(amountKopecks) * 100 / *tr.CommissionPercent))
-				}
-			}
-			extPaymentID := "kazik-" + tr.ID
-			extEventID := "kazik-commission-" + tr.ID
-			// Idempotent: check existing first (partitioned table has no unique constraint on external_event_id)
-			_ = cashx.QueryRow(ctx, `SELECT id FROM conversion_events WHERE project_id=$1 AND external_event_id=$2 LIMIT 1`, projectID, extEventID).Scan(&convID)
-			if convID == 0 {
-				_ = cashx.QueryRow(ctx, `SELECT id FROM conversion_events WHERE project_id=$1 AND external_payment_id=$2 LIMIT 1`, projectID, extPaymentID).Scan(&convID)
-			}
-			if convID == 0 {
-				err = cashx.QueryRow(ctx, `INSERT INTO conversion_events (project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,'RUB',$7) RETURNING id`, projectID, extEventID, extPaymentID, ptrOr(tr.RefUserID, "unknown"), *attributionID, conversionAmount, tr.CreatedAt).Scan(&convID)
-				if err != nil {
-					_ = cashx.QueryRow(ctx, `SELECT id FROM conversion_events WHERE project_id=$1 AND external_event_id=$2 LIMIT 1`, projectID, extEventID).Scan(&convID)
-					if convID == 0 {
-						report.Transactions.Failed++
-						report.Errors = append(report.Errors, fmt.Sprintf("tx %s conv insert: %v", tr.ID, err))
-						continue
-					}
-				}
-			}
-			// commission_earnings
-			bps := 0
-			if tr.CommissionPercent != nil {
-				bps = int(*tr.CommissionPercent * 100)
-			} else {
-				// try derive from partner revshare
-				var rb int
-				_ = cashx.QueryRow(ctx, `SELECT revshare_percent_bps FROM partner_profiles WHERE id=$1`, cashxPID).Scan(&rb)
-				bps = rb
-			}
-			var earningID string
-			err = cashx.QueryRow(ctx, `INSERT INTO commission_earnings (id, conversion_event_id, partner_id, offer_id, rate_bps, amount_kopecks, external_user_id, tracking_link_id, created_at) VALUES (gen_random_uuid(), $1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (conversion_event_id) DO NOTHING RETURNING id`, convID, cashxPID, offerID, bps, amountKopecks, ptrOr(tr.RefUserID, "unknown"), trackingLinkID, tr.CreatedAt).Scan(&earningID)
-			if err != nil && err != pgx.ErrNoRows {
-				// try fetch existing
-				_ = cashx.QueryRow(ctx, `SELECT id FROM commission_earnings WHERE conversion_event_id=$1`, convID).Scan(&earningID)
-			}
-			// Idempotency: an empty earningID means the earning already exists from
-			// a previous run — its wallet credit and ledger entry were written then.
-			// A re-run must never credit the wallet or append a duplicate ledger
-			// entry for it (this exact double-credit inflated balances on prod).
-			if earningID == "" {
+		}
+
+		wid, ok := walletMap[partnerID]
+		if !ok {
+			_ = cashx.QueryRow(ctx, `SELECT id FROM wallets WHERE partner_id = $1`, partnerID).Scan(&wid)
+			if wid == "" {
 				report.Transactions.Skipped++
 				continue
 			}
-			// wallet ledger — only for a genuinely new earning
-			var balanceAfter int64
-			_ = cashx.QueryRow(ctx, `SELECT available_kopecks FROM wallets WHERE id=$1`, wid).Scan(&balanceAfter)
-			newBal := balanceAfter + amountKopecks
-			_, _ = cashx.Exec(ctx, `UPDATE wallets SET available_kopecks=$1, updated_at=now() WHERE id=$2`, newBal, wid)
-			var refConv *int64 = &convID
-			if convID == 0 {
-				refConv = nil
-			}
-			_, err = cashx.Exec(ctx, `INSERT INTO wallet_ledger_entries (wallet_id, type, amount_kopecks, balance_after_kopecks, ref_conversion_event_id, created_at) VALUES ($1,'commission',$2,$3,$4,$5)`, wid, amountKopecks, newBal, refConv, tr.CreatedAt)
-			if err != nil {
-				report.Warnings = append(report.Warnings, fmt.Sprintf("ledger commission %s: %v", tr.ID, err))
-			}
-			// Incoming event for audit
-			payload, _ := json.Marshal(map[string]interface{}{"external_user_id": tr.RefUserID, "amount_kopecks": amountKopecks, "click_token": nil})
-			_, _ = cashx.Exec(ctx, `INSERT INTO incoming_events (project_id, external_event_id, type, payload, status, received_at) VALUES ($1,$2,'revenue.confirmed',$3,'processed',$4) ON CONFLICT DO NOTHING`, projectID, extEventID, payload, tr.CreatedAt)
-			report.Transactions.Inserted++
-		} else if tr.Type == "withdrawal" || tr.Type == "withdrawal_refund" {
-			// Handled in withdrawals step, but ledger entry for withdrawal type already will be covered there; count here as skipped to avoid double
-			report.Transactions.Skipped++
-		} else {
-			report.Transactions.Skipped++
 		}
+
+		kind := "deposit"
+		if p.Purpose == "verification" || p.Purpose == "premium" {
+			kind = "gate"
+		}
+		extPaymentID := "kazik-pay-" + p.ID
+		extEventID := "kazik-payment-" + p.ID
+		amountKopecks := int64(p.Amount) * 100
+
+		// Rate
+		var rateBps int32
+		err = cashx.QueryRow(ctx, `SELECT rate_bps FROM partner_offer_accesses WHERE partner_id = $1 AND offer_id = $2 AND status = 'active'`, partnerID, attrOfferID).Scan(&rateBps)
+		if err != nil {
+			_ = cashx.QueryRow(ctx, `SELECT revshare_percent_bps FROM partner_profiles WHERE id = $1`, partnerID).Scan(&rateBps)
+		}
+
+		var convID int64
+		_ = cashx.QueryRow(ctx, `SELECT id FROM conversion_events WHERE project_id = $1 AND external_payment_id = $2 LIMIT 1`, projectID, extPaymentID).Scan(&convID)
+		if convID == 0 {
+			err = cashx.QueryRow(ctx, `INSERT INTO conversion_events (project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, kind, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,'RUB',$7,$8) RETURNING id`, projectID, extEventID, extPaymentID, p.UserID, attributionID, amountKopecks, kind, p.UpdatedAt).Scan(&convID)
+			if err != nil {
+				_ = cashx.QueryRow(ctx, `SELECT id FROM conversion_events WHERE project_id = $1 AND external_payment_id = $2 LIMIT 1`, projectID, extPaymentID).Scan(&convID)
+				if convID == 0 {
+					report.Transactions.Failed++
+					report.Errors = append(report.Errors, fmt.Sprintf("pmt %s conv insert: %v", p.ID, err))
+					continue
+				}
+			}
+		}
+
+		_, _ = cashx.Exec(ctx, `INSERT INTO conversion_event_payments (project_id, external_payment_id, conversion_event_id, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (project_id, external_payment_id) DO NOTHING`, projectID, extPaymentID, convID, p.UpdatedAt)
+		_, _ = cashx.Exec(ctx, `INSERT INTO incoming_event_keys (project_id, external_event_id, created_at) VALUES ($1, $2, $3) ON CONFLICT (project_id, external_event_id) DO NOTHING`, projectID, extEventID, p.UpdatedAt)
+
+		earningAmount := amountKopecks * int64(rateBps) / 10000
+		if earningAmount <= 0 {
+			report.Transactions.Inserted++
+			continue
+		}
+
+		var earningID string
+		err = cashx.QueryRow(ctx, `INSERT INTO commission_earnings (id, conversion_event_id, partner_id, offer_id, rate_bps, amount_kopecks, external_user_id, tracking_link_id, created_at) VALUES (gen_random_uuid(), $1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (conversion_event_id) DO NOTHING RETURNING id`, convID, partnerID, attrOfferID, rateBps, earningAmount, p.UserID, trackingLinkID, p.UpdatedAt).Scan(&earningID)
+		if err != nil && err != pgx.ErrNoRows {
+			_ = cashx.QueryRow(ctx, `SELECT id FROM commission_earnings WHERE conversion_event_id=$1`, convID).Scan(&earningID)
+		}
+		if earningID == "" {
+			report.Transactions.Skipped++
+			continue
+		}
+
+		var balanceAfter int64
+		_ = cashx.QueryRow(ctx, `SELECT available_kopecks FROM wallets WHERE id=$1`, wid).Scan(&balanceAfter)
+		newBal := balanceAfter + earningAmount
+		_, _ = cashx.Exec(ctx, `UPDATE wallets SET available_kopecks=$1, updated_at=now() WHERE id=$2`, newBal, wid)
+		_, err = cashx.Exec(ctx, `INSERT INTO wallet_ledger_entries (wallet_id, type, amount_kopecks, balance_after_kopecks, ref_conversion_event_id, created_at) VALUES ($1,'commission',$2,$3,$4,$5)`, wid, earningAmount, newBal, convID, p.UpdatedAt)
+		if err != nil {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("ledger commission pmt %s: %v", p.ID, err))
+		}
+
+		payload, _ := json.Marshal(map[string]interface{}{"external_user_id": p.UserID, "amount_kopecks": amountKopecks, "click_token": nil, "kind": kind})
+		_, _ = cashx.Exec(ctx, `INSERT INTO incoming_events (project_id, external_event_id, type, payload, status, received_at) VALUES ($1,$2,'revenue.confirmed',$3,'processed',$4) ON CONFLICT DO NOTHING`, projectID, extEventID, payload, p.UpdatedAt)
+
+		report.Transactions.Inserted++
 	}
 
 	// Withdrawals: affiliate_withdrawals table

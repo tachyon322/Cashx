@@ -62,6 +62,10 @@ WHERE ($1 = '' OR w.partner_id = $1::uuid)
 INSERT INTO commission_earnings (conversion_event_id, partner_id, offer_id, tracking_link_id, rate_bps, amount_kopecks, external_user_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, conversion_event_id, partner_id, offer_id, tracking_link_id, rate_bps, amount_kopecks, external_user_id, reversed_at, created_at;
 
+-- name: InsertCommissionEarningWithCreatedAt :one
+INSERT INTO commission_earnings (conversion_event_id, partner_id, offer_id, tracking_link_id, rate_bps, amount_kopecks, external_user_id, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, conversion_event_id, partner_id, offer_id, tracking_link_id, rate_bps, amount_kopecks, external_user_id, reversed_at, created_at;
+
 -- name: GetEarningByConversion :one
 SELECT id, conversion_event_id, partner_id, offer_id, tracking_link_id, rate_bps, amount_kopecks, external_user_id, reversed_at, created_at
 FROM commission_earnings WHERE conversion_event_id = $1;

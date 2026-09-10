@@ -31,6 +31,8 @@ type Querier interface {
 	AggRegistrationsByLink(ctx context.Context, arg AggRegistrationsByLinkParams) ([]AggRegistrationsByLinkRow, error)
 	AggUniqueClicksByDay(ctx context.Context, arg AggUniqueClicksByDayParams) ([]AggUniqueClicksByDayRow, error)
 	AggUniqueClicksByLink(ctx context.Context, arg AggUniqueClicksByLinkParams) ([]AggUniqueClicksByLinkRow, error)
+	BatchDepositsByLinksAllTime(ctx context.Context, dollar_1 []string) ([]BatchDepositsByLinksAllTimeRow, error)
+	BatchDepositsByLinksRange(ctx context.Context, arg BatchDepositsByLinksRangeParams) ([]BatchDepositsByLinksRangeRow, error)
 	ClaimOutboxMessages(ctx context.Context, limit int32) ([]OutboxMessage, error)
 	ClearDefaultTrackingLinks(ctx context.Context, partnerOfferAccessID string) error
 	ClearMainOfferDomain(ctx context.Context, offerID string) error
@@ -88,8 +90,8 @@ type Querier interface {
 	GetAnnouncementRead(ctx context.Context, arg GetAnnouncementReadParams) (AnnouncementRead, error)
 	GetAttributionByProjectUser(ctx context.Context, arg GetAttributionByProjectUserParams) (ExternalUserAttribution, error)
 	GetClickWithLink(ctx context.Context, id int64) (GetClickWithLinkRow, error)
-	GetConversionByEvent(ctx context.Context, arg GetConversionByEventParams) (ConversionEvent, error)
-	GetConversionByPayment(ctx context.Context, arg GetConversionByPaymentParams) (ConversionEvent, error)
+	GetConversionByEvent(ctx context.Context, arg GetConversionByEventParams) (GetConversionByEventRow, error)
+	GetConversionByPayment(ctx context.Context, arg GetConversionByPaymentParams) (GetConversionByPaymentRow, error)
 	GetCurrentTerms(ctx context.Context, offerID string) (OfferTermsVersion, error)
 	GetDailyStats(ctx context.Context, arg GetDailyStatsParams) ([]DailyPartnerOfferStat, error)
 	GetDailyStatsByOffer(ctx context.Context, arg GetDailyStatsByOfferParams) ([]DailyPartnerOfferStat, error)
@@ -149,8 +151,11 @@ type Querier interface {
 	InsertAnnouncementRead(ctx context.Context, arg InsertAnnouncementReadParams) error
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
 	InsertCommissionEarning(ctx context.Context, arg InsertCommissionEarningParams) (CommissionEarning, error)
-	InsertConversion(ctx context.Context, arg InsertConversionParams) (ConversionEvent, error)
+	InsertCommissionEarningWithCreatedAt(ctx context.Context, arg InsertCommissionEarningWithCreatedAtParams) (CommissionEarning, error)
+	InsertConversion(ctx context.Context, arg InsertConversionParams) (InsertConversionRow, error)
+	InsertConversionPaymentKey(ctx context.Context, arg InsertConversionPaymentKeyParams) (int64, error)
 	InsertIncomingEvent(ctx context.Context, arg InsertIncomingEventParams) (InsertIncomingEventRow, error)
+	InsertIncomingEventKey(ctx context.Context, arg InsertIncomingEventKeyParams) (int64, error)
 	InsertLedgerEntry(ctx context.Context, arg InsertLedgerEntryParams) (InsertLedgerEntryRow, error)
 	InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessageParams) (OutboxMessage, error)
 	InsertPayoutTransfer(ctx context.Context, arg InsertPayoutTransferParams) (PayoutTransfer, error)
@@ -164,7 +169,7 @@ type Querier interface {
 	ListAnnouncementAudiencePartnerIDs(ctx context.Context, announcementID string) ([]pgtype.UUID, error)
 	ListAnnouncements(ctx context.Context) ([]Announcement, error)
 	ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]ListAuditLogRow, error)
-	ListConversionsByAttribution(ctx context.Context, attributionID int64) ([]ConversionEvent, error)
+	ListConversionsByAttribution(ctx context.Context, attributionID int64) ([]ListConversionsByAttributionRow, error)
 	// Default link per access for all of the partner's accesses (same
 	// is_default DESC, created_at preference as GetDefaultTrackingLinkByAccessID)
 	// in a single query, instead of one query per offer in Summary/ListOffers.
@@ -217,6 +222,8 @@ type Querier interface {
 	ReverseEarning(ctx context.Context, id string) (CommissionEarning, error)
 	ReverseReward(ctx context.Context, id string) (ReferralReward, error)
 	SearchTrackingLinks(ctx context.Context, arg SearchTrackingLinksParams) ([]TrackingLink, error)
+	SetConversionPaymentKeyEvent(ctx context.Context, arg SetConversionPaymentKeyEventParams) error
+	SetConversionReversed(ctx context.Context, id int64) (SetConversionReversedRow, error)
 	SetDefaultTrackingLink(ctx context.Context, id string) error
 	SetOfferDomainMain(ctx context.Context, arg SetOfferDomainMainParams) error
 	SetPartnerRevShare(ctx context.Context, arg SetPartnerRevShareParams) error

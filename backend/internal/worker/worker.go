@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -142,8 +144,14 @@ func (r *Runner) statsLoop(ctx context.Context) {
 // days (the shared implementation lives in tracking.RecomputeDailyStats and
 // is also used by cmd/backfill-stats for whole-history runs).
 func (r *Runner) recomputeStats(ctx context.Context) error {
+	days := 3
+	if v := os.Getenv("CASHX_STATS_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			days = n
+		}
+	}
 	now := time.Now()
-	from := tracking.StartOfMSKDay(now).AddDate(0, 0, -2)
+	from := tracking.StartOfMSKDay(now).AddDate(0, 0, -(days - 1))
 	to := tracking.StartOfMSKDay(now).AddDate(0, 0, 1) // exclusive
 	return tracking.RecomputeDailyStats(ctx, r.Pool, from, to)
 }

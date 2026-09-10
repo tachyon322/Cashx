@@ -203,10 +203,24 @@ func AggregateForSources(ctx context.Context, q *repository.Queries, counters *C
 	// Try Redis first if no date filter
 	if counters != nil && r.From == nil && r.To == nil {
 		if m, ok := counters.GetStats(ctx, linkIDs); ok {
-			// Convert to StatsAggregate (already)
+			depRows, err := q.BatchDepositsByLinksAllTime(ctx, linkIDs)
+			if err != nil {
+				return nil, err
+			}
+			depMap := make(map[string]repository.BatchDepositsByLinksAllTimeRow, len(depRows))
+			for _, dr := range depRows {
+				depMap[dr.TrackingLinkID] = dr
+			}
 			out := make(map[string]StatsAggregate, len(m))
 			for k, v := range m {
 				agg := v
+				if d, exists := depMap[k]; exists {
+					agg.DepositsCount = d.DepositsCount
+					agg.DepositsSum = d.DepositsSum
+				} else {
+					agg.DepositsCount = 0
+					agg.DepositsSum = 0
+				}
 				if agg.Clicks > 0 {
 					cr := float64(agg.Signups) / float64(agg.Clicks) * 100
 					agg.Cr = &cr
@@ -218,6 +232,50 @@ func AggregateForSources(ctx context.Context, q *repository.Queries, counters *C
 			return out, nil
 		}
 	}
+
+	// Batch deposits for all links in range or all-time
+	type depInfo struct {
+		count int64
+		sum   int64
+	}
+	depMap := make(map[string]depInfo, len(linkIDs))
+	if r.From != nil || r.To != nil {
+		var from time.Time
+		if r.From != nil {
+			from = *r.From
+		} else {
+			from = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+		}
+		var to time.Time
+		if r.To != nil {
+			to = *r.To
+			if to.In(MSK).Hour() == 23 && to.In(MSK).Minute() == 59 && to.In(MSK).Second() == 59 {
+				to = to.Add(time.Second)
+			}
+		} else {
+			to = time.Now().Add(365 * 24 * time.Hour)
+		}
+		rows, err := q.BatchDepositsByLinksRange(ctx, repository.BatchDepositsByLinksRangeParams{
+			Column1:      linkIDs,
+			OccurredAt:   repository.TimePtr(&from),
+			OccurredAt_2: repository.TimePtr(&to),
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, dr := range rows {
+			depMap[dr.TrackingLinkID] = depInfo{count: dr.DepositsCount, sum: dr.DepositsSum}
+		}
+	} else {
+		rows, err := q.BatchDepositsByLinksAllTime(ctx, linkIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, dr := range rows {
+			depMap[dr.TrackingLinkID] = depInfo{count: dr.DepositsCount, sum: dr.DepositsSum}
+		}
+	}
+
 	// Fallback PG: query per link
 	out := make(map[string]StatsAggregate, len(linkIDs))
 	for _, id := range linkIDs {
@@ -231,8 +289,6 @@ func AggregateForSources(ctx context.Context, q *repository.Queries, counters *C
 		// Use existing daily stats if range, else all-time
 		var agg StatsAggregate
 		if from != nil || to != nil {
-			// For range, use daily stats sum if available, else raw
-			// Simplified: use SumDailyLinkStats
 			var row struct {
 				Clicks        int64
 				UniqueClicks  int64
@@ -240,7 +296,6 @@ func AggregateForSources(ctx context.Context, q *repository.Queries, counters *C
 				FirstPayments int64
 				IncomeKopecks int64
 			}
-			// Try daily_link_stats first
 			if from != nil && to != nil {
 				if res, err := q.SumDailyLinkStats(ctx, repository.SumDailyLinkStatsParams{TrackingLinkID: id, Day: repository.DatePtr(*from), Day_2: repository.DatePtr(*to)}); err == nil {
 					row.Clicks = res.Clicks
@@ -263,7 +318,6 @@ func AggregateForSources(ctx context.Context, q *repository.Queries, counters *C
 			agg.Signups = row.Registrations
 			agg.Depositors = row.FirstPayments
 			agg.Income = row.IncomeKopecks
-			agg.DepositsSum = row.IncomeKopecks // approximation
 		} else {
 			if res, err := q.SumDailyLinkStatsAllTime(ctx, id); err == nil {
 				agg.Clicks = res.Clicks
@@ -271,8 +325,14 @@ func AggregateForSources(ctx context.Context, q *repository.Queries, counters *C
 				agg.Signups = res.Registrations
 				agg.Depositors = res.FirstPayments
 				agg.Income = res.IncomeKopecks
-				agg.DepositsSum = res.IncomeKopecks
 			}
+		}
+		if d, exists := depMap[id]; exists {
+			agg.DepositsCount = d.count
+			agg.DepositsSum = d.sum
+		} else {
+			agg.DepositsCount = 0
+			agg.DepositsSum = 0
 		}
 		// Count promos separately
 		if link, err := q.GetTrackingLinkByID(ctx, id); err == nil && link.Type == "promo" {

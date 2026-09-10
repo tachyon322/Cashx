@@ -102,6 +102,7 @@ SELECT a.partner_id, a.offer_id, (ce.occurred_at AT TIME ZONE 'Europe/Moscow')::
 FROM conversion_events ce
 JOIN external_user_attributions a ON a.id = ce.attribution_id
 WHERE ce.occurred_at >= $1 AND ce.occurred_at < $2
+  AND ce.reversed_at IS NULL
 GROUP BY a.partner_id, a.offer_id, day
 `
 
@@ -155,6 +156,7 @@ FROM conversion_events ce
 JOIN external_user_attributions a ON a.id = ce.attribution_id
 LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
 WHERE ce.occurred_at >= $1 AND ce.occurred_at < $2
+  AND ce.reversed_at IS NULL
   AND COALESCE(a.tracking_link_id, c.tracking_link_id) IS NOT NULL
 GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id), day
 `
@@ -444,6 +446,89 @@ func (q *Queries) AggUniqueClicksByLink(ctx context.Context, arg AggUniqueClicks
 	return items, nil
 }
 
+const batchDepositsByLinksAllTime = `-- name: BatchDepositsByLinksAllTime :many
+SELECT COALESCE(a.tracking_link_id, c.tracking_link_id)::uuid AS tracking_link_id,
+       count(*)::bigint AS deposits_count,
+       COALESCE(sum(ce.amount_kopecks), 0)::bigint AS deposits_sum
+FROM conversion_events ce
+JOIN external_user_attributions a ON a.id = ce.attribution_id
+LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
+WHERE COALESCE(a.tracking_link_id, c.tracking_link_id) = ANY($1::uuid[])
+  AND ce.reversed_at IS NULL
+GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id)
+`
+
+type BatchDepositsByLinksAllTimeRow struct {
+	TrackingLinkID string `json:"tracking_link_id"`
+	DepositsCount  int64  `json:"deposits_count"`
+	DepositsSum    int64  `json:"deposits_sum"`
+}
+
+func (q *Queries) BatchDepositsByLinksAllTime(ctx context.Context, dollar_1 []string) ([]BatchDepositsByLinksAllTimeRow, error) {
+	rows, err := q.db.Query(ctx, batchDepositsByLinksAllTime, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BatchDepositsByLinksAllTimeRow
+	for rows.Next() {
+		var i BatchDepositsByLinksAllTimeRow
+		if err := rows.Scan(&i.TrackingLinkID, &i.DepositsCount, &i.DepositsSum); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const batchDepositsByLinksRange = `-- name: BatchDepositsByLinksRange :many
+SELECT COALESCE(a.tracking_link_id, c.tracking_link_id)::uuid AS tracking_link_id,
+       count(*)::bigint AS deposits_count,
+       COALESCE(sum(ce.amount_kopecks), 0)::bigint AS deposits_sum
+FROM conversion_events ce
+JOIN external_user_attributions a ON a.id = ce.attribution_id
+LEFT JOIN tracking_clicks c ON c.id = a.tracking_click_id
+WHERE COALESCE(a.tracking_link_id, c.tracking_link_id) = ANY($1::uuid[])
+  AND ce.occurred_at >= $2 AND ce.occurred_at < $3
+  AND ce.reversed_at IS NULL
+GROUP BY COALESCE(a.tracking_link_id, c.tracking_link_id)
+`
+
+type BatchDepositsByLinksRangeParams struct {
+	Column1      []string           `json:"column_1"`
+	OccurredAt   pgtype.Timestamptz `json:"occurred_at"`
+	OccurredAt_2 pgtype.Timestamptz `json:"occurred_at_2"`
+}
+
+type BatchDepositsByLinksRangeRow struct {
+	TrackingLinkID string `json:"tracking_link_id"`
+	DepositsCount  int64  `json:"deposits_count"`
+	DepositsSum    int64  `json:"deposits_sum"`
+}
+
+func (q *Queries) BatchDepositsByLinksRange(ctx context.Context, arg BatchDepositsByLinksRangeParams) ([]BatchDepositsByLinksRangeRow, error) {
+	rows, err := q.db.Query(ctx, batchDepositsByLinksRange, arg.Column1, arg.OccurredAt, arg.OccurredAt_2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BatchDepositsByLinksRangeRow
+	for rows.Next() {
+		var i BatchDepositsByLinksRangeRow
+		if err := rows.Scan(&i.TrackingLinkID, &i.DepositsCount, &i.DepositsSum); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createAttribution = `-- name: CreateAttribution :one
 INSERT INTO external_user_attributions (project_id, tracking_click_id, tracking_link_id, partner_id, offer_id, external_user_id)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -603,7 +688,7 @@ func (q *Queries) GetClickWithLink(ctx context.Context, id int64) (GetClickWithL
 }
 
 const getConversionByEvent = `-- name: GetConversionByEvent :one
-SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, created_at
+SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, kind, reversed_at, created_at
 FROM conversion_events WHERE project_id = $1 AND external_event_id = $2
 `
 
@@ -612,9 +697,25 @@ type GetConversionByEventParams struct {
 	ExternalEventID string `json:"external_event_id"`
 }
 
-func (q *Queries) GetConversionByEvent(ctx context.Context, arg GetConversionByEventParams) (ConversionEvent, error) {
+type GetConversionByEventRow struct {
+	ID                int64              `json:"id"`
+	ProjectID         string             `json:"project_id"`
+	ExternalEventID   string             `json:"external_event_id"`
+	ExternalPaymentID string             `json:"external_payment_id"`
+	ExternalUserID    string             `json:"external_user_id"`
+	AttributionID     int64              `json:"attribution_id"`
+	AmountKopecks     int64              `json:"amount_kopecks"`
+	Currency          string             `json:"currency"`
+	OccurredAt        pgtype.Timestamptz `json:"occurred_at"`
+	ProcessingNote    pgtype.Text        `json:"processing_note"`
+	Kind              string             `json:"kind"`
+	ReversedAt        pgtype.Timestamptz `json:"reversed_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetConversionByEvent(ctx context.Context, arg GetConversionByEventParams) (GetConversionByEventRow, error) {
 	row := q.db.QueryRow(ctx, getConversionByEvent, arg.ProjectID, arg.ExternalEventID)
-	var i ConversionEvent
+	var i GetConversionByEventRow
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
@@ -626,13 +727,15 @@ func (q *Queries) GetConversionByEvent(ctx context.Context, arg GetConversionByE
 		&i.Currency,
 		&i.OccurredAt,
 		&i.ProcessingNote,
+		&i.Kind,
+		&i.ReversedAt,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getConversionByPayment = `-- name: GetConversionByPayment :one
-SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, created_at
+SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, kind, reversed_at, created_at
 FROM conversion_events WHERE project_id = $1 AND external_payment_id = $2
 `
 
@@ -641,9 +744,25 @@ type GetConversionByPaymentParams struct {
 	ExternalPaymentID string `json:"external_payment_id"`
 }
 
-func (q *Queries) GetConversionByPayment(ctx context.Context, arg GetConversionByPaymentParams) (ConversionEvent, error) {
+type GetConversionByPaymentRow struct {
+	ID                int64              `json:"id"`
+	ProjectID         string             `json:"project_id"`
+	ExternalEventID   string             `json:"external_event_id"`
+	ExternalPaymentID string             `json:"external_payment_id"`
+	ExternalUserID    string             `json:"external_user_id"`
+	AttributionID     int64              `json:"attribution_id"`
+	AmountKopecks     int64              `json:"amount_kopecks"`
+	Currency          string             `json:"currency"`
+	OccurredAt        pgtype.Timestamptz `json:"occurred_at"`
+	ProcessingNote    pgtype.Text        `json:"processing_note"`
+	Kind              string             `json:"kind"`
+	ReversedAt        pgtype.Timestamptz `json:"reversed_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetConversionByPayment(ctx context.Context, arg GetConversionByPaymentParams) (GetConversionByPaymentRow, error) {
 	row := q.db.QueryRow(ctx, getConversionByPayment, arg.ProjectID, arg.ExternalPaymentID)
-	var i ConversionEvent
+	var i GetConversionByPaymentRow
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
@@ -655,6 +774,8 @@ func (q *Queries) GetConversionByPayment(ctx context.Context, arg GetConversionB
 		&i.Currency,
 		&i.OccurredAt,
 		&i.ProcessingNote,
+		&i.Kind,
+		&i.ReversedAt,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -887,6 +1008,7 @@ FROM conversion_events ce
 JOIN external_user_attributions a ON a.id = ce.attribution_id
 WHERE a.tracking_link_id = $1
   AND ce.occurred_at >= $2 AND ce.occurred_at <= $3
+  AND ce.reversed_at IS NULL
 ORDER BY ce.occurred_at DESC LIMIT $4
 `
 
@@ -989,8 +1111,8 @@ func (q *Queries) HistoryEarningsByPartnerOffer(ctx context.Context, arg History
 }
 
 const insertConversion = `-- name: InsertConversion :one
-INSERT INTO conversion_events (project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, created_at
+INSERT INTO conversion_events (project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, kind)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, kind, reversed_at, created_at
 `
 
 type InsertConversionParams struct {
@@ -1003,9 +1125,26 @@ type InsertConversionParams struct {
 	Currency          string             `json:"currency"`
 	OccurredAt        pgtype.Timestamptz `json:"occurred_at"`
 	ProcessingNote    pgtype.Text        `json:"processing_note"`
+	Kind              string             `json:"kind"`
 }
 
-func (q *Queries) InsertConversion(ctx context.Context, arg InsertConversionParams) (ConversionEvent, error) {
+type InsertConversionRow struct {
+	ID                int64              `json:"id"`
+	ProjectID         string             `json:"project_id"`
+	ExternalEventID   string             `json:"external_event_id"`
+	ExternalPaymentID string             `json:"external_payment_id"`
+	ExternalUserID    string             `json:"external_user_id"`
+	AttributionID     int64              `json:"attribution_id"`
+	AmountKopecks     int64              `json:"amount_kopecks"`
+	Currency          string             `json:"currency"`
+	OccurredAt        pgtype.Timestamptz `json:"occurred_at"`
+	ProcessingNote    pgtype.Text        `json:"processing_note"`
+	Kind              string             `json:"kind"`
+	ReversedAt        pgtype.Timestamptz `json:"reversed_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) InsertConversion(ctx context.Context, arg InsertConversionParams) (InsertConversionRow, error) {
 	row := q.db.QueryRow(ctx, insertConversion,
 		arg.ProjectID,
 		arg.ExternalEventID,
@@ -1016,8 +1155,9 @@ func (q *Queries) InsertConversion(ctx context.Context, arg InsertConversionPara
 		arg.Currency,
 		arg.OccurredAt,
 		arg.ProcessingNote,
+		arg.Kind,
 	)
-	var i ConversionEvent
+	var i InsertConversionRow
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,
@@ -1029,9 +1169,31 @@ func (q *Queries) InsertConversion(ctx context.Context, arg InsertConversionPara
 		&i.Currency,
 		&i.OccurredAt,
 		&i.ProcessingNote,
+		&i.Kind,
+		&i.ReversedAt,
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const insertConversionPaymentKey = `-- name: InsertConversionPaymentKey :execrows
+INSERT INTO conversion_event_payments (project_id, external_payment_id, conversion_event_id)
+VALUES ($1, $2, $3)
+ON CONFLICT (project_id, external_payment_id) DO NOTHING
+`
+
+type InsertConversionPaymentKeyParams struct {
+	ProjectID         string      `json:"project_id"`
+	ExternalPaymentID string      `json:"external_payment_id"`
+	ConversionEventID pgtype.Int8 `json:"conversion_event_id"`
+}
+
+func (q *Queries) InsertConversionPaymentKey(ctx context.Context, arg InsertConversionPaymentKeyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertConversionPaymentKey, arg.ProjectID, arg.ExternalPaymentID, arg.ConversionEventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const insertIncomingEvent = `-- name: InsertIncomingEvent :one
@@ -1080,20 +1242,55 @@ func (q *Queries) InsertIncomingEvent(ctx context.Context, arg InsertIncomingEve
 	return i, err
 }
 
+const insertIncomingEventKey = `-- name: InsertIncomingEventKey :execrows
+INSERT INTO incoming_event_keys (project_id, external_event_id)
+VALUES ($1, $2)
+ON CONFLICT (project_id, external_event_id) DO NOTHING
+`
+
+type InsertIncomingEventKeyParams struct {
+	ProjectID       string `json:"project_id"`
+	ExternalEventID string `json:"external_event_id"`
+}
+
+func (q *Queries) InsertIncomingEventKey(ctx context.Context, arg InsertIncomingEventKeyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertIncomingEventKey, arg.ProjectID, arg.ExternalEventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listConversionsByAttribution = `-- name: ListConversionsByAttribution :many
-SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, created_at
+SELECT id, project_id, external_event_id, external_payment_id, external_user_id, attribution_id, amount_kopecks, currency, occurred_at, processing_note, kind, reversed_at, created_at
 FROM conversion_events WHERE attribution_id = $1 ORDER BY occurred_at
 `
 
-func (q *Queries) ListConversionsByAttribution(ctx context.Context, attributionID int64) ([]ConversionEvent, error) {
+type ListConversionsByAttributionRow struct {
+	ID                int64              `json:"id"`
+	ProjectID         string             `json:"project_id"`
+	ExternalEventID   string             `json:"external_event_id"`
+	ExternalPaymentID string             `json:"external_payment_id"`
+	ExternalUserID    string             `json:"external_user_id"`
+	AttributionID     int64              `json:"attribution_id"`
+	AmountKopecks     int64              `json:"amount_kopecks"`
+	Currency          string             `json:"currency"`
+	OccurredAt        pgtype.Timestamptz `json:"occurred_at"`
+	ProcessingNote    pgtype.Text        `json:"processing_note"`
+	Kind              string             `json:"kind"`
+	ReversedAt        pgtype.Timestamptz `json:"reversed_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListConversionsByAttribution(ctx context.Context, attributionID int64) ([]ListConversionsByAttributionRow, error) {
 	rows, err := q.db.Query(ctx, listConversionsByAttribution, attributionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ConversionEvent
+	var items []ListConversionsByAttributionRow
 	for rows.Next() {
-		var i ConversionEvent
+		var i ListConversionsByAttributionRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ProjectID,
@@ -1105,6 +1302,8 @@ func (q *Queries) ListConversionsByAttribution(ctx context.Context, attributionI
 			&i.Currency,
 			&i.OccurredAt,
 			&i.ProcessingNote,
+			&i.Kind,
+			&i.ReversedAt,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -1115,6 +1314,53 @@ func (q *Queries) ListConversionsByAttribution(ctx context.Context, attributionI
 		return nil, err
 	}
 	return items, nil
+}
+
+const setConversionPaymentKeyEvent = `-- name: SetConversionPaymentKeyEvent :exec
+UPDATE conversion_event_payments
+SET conversion_event_id = $3
+WHERE project_id = $1 AND external_payment_id = $2
+`
+
+type SetConversionPaymentKeyEventParams struct {
+	ProjectID         string      `json:"project_id"`
+	ExternalPaymentID string      `json:"external_payment_id"`
+	ConversionEventID pgtype.Int8 `json:"conversion_event_id"`
+}
+
+func (q *Queries) SetConversionPaymentKeyEvent(ctx context.Context, arg SetConversionPaymentKeyEventParams) error {
+	_, err := q.db.Exec(ctx, setConversionPaymentKeyEvent, arg.ProjectID, arg.ExternalPaymentID, arg.ConversionEventID)
+	return err
+}
+
+const setConversionReversed = `-- name: SetConversionReversed :one
+UPDATE conversion_events
+SET reversed_at = now()
+WHERE id = $1 AND reversed_at IS NULL
+RETURNING id, project_id, external_event_id, external_payment_id, occurred_at, reversed_at
+`
+
+type SetConversionReversedRow struct {
+	ID                int64              `json:"id"`
+	ProjectID         string             `json:"project_id"`
+	ExternalEventID   string             `json:"external_event_id"`
+	ExternalPaymentID string             `json:"external_payment_id"`
+	OccurredAt        pgtype.Timestamptz `json:"occurred_at"`
+	ReversedAt        pgtype.Timestamptz `json:"reversed_at"`
+}
+
+func (q *Queries) SetConversionReversed(ctx context.Context, id int64) (SetConversionReversedRow, error) {
+	row := q.db.QueryRow(ctx, setConversionReversed, id)
+	var i SetConversionReversedRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.ExternalEventID,
+		&i.ExternalPaymentID,
+		&i.OccurredAt,
+		&i.ReversedAt,
+	)
+	return i, err
 }
 
 const sumDailyLinkStats = `-- name: SumDailyLinkStats :one

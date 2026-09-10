@@ -69,8 +69,17 @@ type ConversionEvent struct {
 	AttributionID     int64              `json:"attribution_id"`
 	AmountKopecks     int64              `json:"amount_kopecks"`
 	Currency          string             `json:"currency"`
+	Kind              string             `json:"kind"`
 	OccurredAt        pgtype.Timestamptz `json:"occurred_at"`
 	ProcessingNote    pgtype.Text        `json:"processing_note"`
+	ReversedAt        pgtype.Timestamptz `json:"reversed_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+type ConversionEventPayment struct {
+	ProjectID         string             `json:"project_id"`
+	ExternalPaymentID string             `json:"external_payment_id"`
+	ConversionEventID pgtype.Int8        `json:"conversion_event_id"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -83,8 +92,10 @@ type ConversionEvents202608 struct {
 	AttributionID     int64              `json:"attribution_id"`
 	AmountKopecks     int64              `json:"amount_kopecks"`
 	Currency          string             `json:"currency"`
+	Kind              string             `json:"kind"`
 	OccurredAt        pgtype.Timestamptz `json:"occurred_at"`
 	ProcessingNote    pgtype.Text        `json:"processing_note"`
+	ReversedAt        pgtype.Timestamptz `json:"reversed_at"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -129,6 +140,12 @@ type IncomingEvent struct {
 	Status          string             `json:"status"`
 	Reason          pgtype.Text        `json:"reason"`
 	ReceivedAt      pgtype.Timestamptz `json:"received_at"`
+}
+
+type IncomingEventKey struct {
+	ProjectID       string             `json:"project_id"`
+	ExternalEventID string             `json:"external_event_id"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
 type IncomingEvents202608 struct {

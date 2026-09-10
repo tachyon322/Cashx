@@ -162,7 +162,7 @@ func (s *Service) getRecentActivity(ctx context.Context, partnerID, offerID stri
 		LEFT JOIN tracking_links tl1 ON tl1.id = a.tracking_link_id
 		LEFT JOIN tracking_clicks tc ON tc.id = a.tracking_click_id
 		LEFT JOIN tracking_links tl2 ON tl2.id = tc.tracking_link_id
-		WHERE a.partner_id = $1`+attrOffer+`
+		WHERE a.partner_id = $1 AND ce.reversed_at IS NULL`+attrOffer+`
 		ORDER BY ce.occurred_at DESC
 		LIMIT $2
 	`, args...)

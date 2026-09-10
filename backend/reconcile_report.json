@@ -1,0 +1,130 @@
+{
+  "generated_at": "2026-09-10T10:00:53.962397502Z",
+  "project": "kazik",
+  "project_id": "a23a3021-619c-4442-afef-12ec0f54beef",
+  "window": {
+    "from": "2026-09-05T00:00:00+03:00",
+    "to": "2026-09-10T00:00:00+03:00"
+  },
+  "mode": "dry-run",
+  "casino": {
+    "total_payments": 10,
+    "total_amount_kopecks": 20000000,
+    "total_amount_rubles": 200000,
+    "attributed_count": 0,
+    "attributed_sum_kopecks": 0,
+    "unattributed_count": 10,
+    "unattributed_sum_kopecks": 20000000,
+    "unattributed_movements": [
+      {
+        "id": "0339894d-eb70-4f55-82f4-dee6f9bc9c0e",
+        "user_id": "b5yIowzV19ZunMqWs7Qd7mY1ZWq7EAxq",
+        "amount_kopecks": 2000000,
+        "purpose": "deposit",
+        "kind": "deposit",
+        "updated_at": "2026-09-08T21:39:24.456+07:00"
+      },
+      {
+        "id": "92b7ca97-ce54-4c1b-9127-231acb8c8074",
+        "user_id": "b5yIowzV19ZunMqWs7Qd7mY1ZWq7EAxq",
+        "amount_kopecks": 2000000,
+        "purpose": "deposit",
+        "kind": "deposit",
+        "updated_at": "2026-09-08T21:39:25.738+07:00"
+      },
+      {
+        "id": "db34f98d-b2ae-431f-9813-00ebfe0649dc",
+        "user_id": "b5yIowzV19ZunMqWs7Qd7mY1ZWq7EAxq",
+        "amount_kopecks": 2000000,
+        "purpose": "deposit",
+        "kind": "deposit",
+        "updated_at": "2026-09-08T21:39:27.676+07:00"
+      },
+      {
+        "id": "e7f58970-cb09-40f3-851e-2e28b0520332",
+        "user_id": "b5yIowzV19ZunMqWs7Qd7mY1ZWq7EAxq",
+        "amount_kopecks": 2000000,
+        "purpose": "deposit",
+        "kind": "deposit",
+        "updated_at": "2026-09-08T21:39:30.262+07:00"
+      },
+      {
+        "id": "9a5cced8-4a56-476a-b15f-16993d1e3de2",
+        "user_id": "b5yIowzV19ZunMqWs7Qd7mY1ZWq7EAxq",
+        "amount_kopecks": 2000000,
+        "purpose": "deposit",
+        "kind": "deposit",
+        "updated_at": "2026-09-08T21:39:31.495+07:00"
+      },
+      {
+        "id": "7e12d890-484a-4da1-aa23-d7b18133f2de",
+        "user_id": "b5yIowzV19ZunMqWs7Qd7mY1ZWq7EAxq",
+        "amount_kopecks": 2000000,
+        "purpose": "deposit",
+        "kind": "deposit",
+        "updated_at": "2026-09-08T21:39:32.745+07:00"
+      },
+      {
+        "id": "52e6f6e6-5c6e-4f48-9d5c-5e3edc7e7798",
+        "user_id": "b5yIowzV19ZunMqWs7Qd7mY1ZWq7EAxq",
+        "amount_kopecks": 2000000,
+        "purpose": "deposit",
+        "kind": "deposit",
+        "updated_at": "2026-09-08T21:39:33.698+07:00"
+      },
+      {
+        "id": "68751051-50bc-4fb4-8082-2b93965eefc8",
+        "user_id": "b5yIowzV19ZunMqWs7Qd7mY1ZWq7EAxq",
+        "amount_kopecks": 2000000,
+        "purpose": "deposit",
+        "kind": "deposit",
+        "updated_at": "2026-09-08T21:39:34.542+07:00"
+      },
+      {
+        "id": "55f96111-6bf9-4f95-beff-6d36b0077d69",
+        "user_id": "b5yIowzV19ZunMqWs7Qd7mY1ZWq7EAxq",
+        "amount_kopecks": 2000000,
+        "purpose": "deposit",
+        "kind": "deposit",
+        "updated_at": "2026-09-08T21:39:35.273+07:00"
+      },
+      {
+        "id": "4aa794ad-8018-41ce-8b05-0c9afa651f7e",
+        "user_id": "b5yIowzV19ZunMqWs7Qd7mY1ZWq7EAxq",
+        "amount_kopecks": 2000000,
+        "purpose": "deposit",
+        "kind": "deposit",
+        "updated_at": "2026-09-08T21:39:36.026+07:00"
+      }
+    ]
+  },
+  "cashx": {
+    "initial_conversions_count": 0,
+    "initial_sum_kopecks": 0,
+    "active_conversions_count": 0,
+    "active_sum_kopecks": 0,
+    "active_sum_rubles": 0
+  },
+  "matching": {
+    "matched_exact_count": 0,
+    "matched_exact_kopecks": 0,
+    "matched_fallback_count": 0,
+    "matched_fallback_kopecks": 0,
+    "missing_count": 0,
+    "missing_kopecks": 0,
+    "orphan_count": 0,
+    "orphan_kopecks": 0
+  },
+  "fraud_audit": null,
+  "wallets": null,
+  "integrity_check": {
+    "active_conversions_count": 0,
+    "active_conversions_sum_kopecks": 0,
+    "active_earnings_sum_kopecks": 0,
+    "stats_first_payments": 0,
+    "stats_income_kopecks": 0,
+    "passed": true
+  },
+  "errors": null,
+  "warnings": null
+}

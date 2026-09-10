@@ -29,6 +29,7 @@ type EventInput struct {
 	ExternalPaymentID *string    `json:"external_payment_id"`
 	AmountKopecks     *int64     `json:"amount_kopecks"`
 	Currency          *string    `json:"currency"`
+	Kind              *string    `json:"kind,omitempty"`
 }
 
 // EventSource describes the traffic source an event was attributed to.
@@ -75,18 +76,22 @@ func (s *Service) Process(ctx context.Context, projectID string, rawBody []byte)
 	var result ProcessResult
 	err := repository.WithTx(ctx, s.Pool, func(tq *repository.Queries) error {
 		// Idempotency: serialize concurrent replays of the same event and
-		// check the incoming log before doing any work.
+		// reserve the incoming event key atomically inside the transaction.
 		if err := tq.EventLock(ctx, projectID+":"+in.EventID); err != nil {
 			return err
 		}
-		if _, err := tq.GetIncomingEvent(ctx, repository.GetIncomingEventParams{ProjectID: projectID, ExternalEventID: in.EventID}); err == nil {
-			result = ProcessResult{Status: "duplicate"}
-			return nil
-		} else if !errors.Is(err, pgx.ErrNoRows) {
+		rows, err := tq.InsertIncomingEventKey(ctx, repository.InsertIncomingEventKeyParams{
+			ProjectID:       projectID,
+			ExternalEventID: in.EventID,
+		})
+		if err != nil {
 			return err
 		}
+		if rows == 0 {
+			result = ProcessResult{Status: "duplicate"}
+			return nil
+		}
 
-		var err error
 		switch in.Type {
 		case "registration.created":
 			result, err = s.processRegistration(ctx, tq, projectID, &in)
@@ -225,25 +230,45 @@ func (s *Service) processConfirmed(ctx context.Context, tq *repository.Queries, 
 	}
 	attrPartnerID := *repository.UUIDToPtr(attr.PartnerID)
 	attrOfferID := *repository.UUIDToPtr(attr.OfferID)
-	// Payment/event idempotency.
-	if _, err := tq.GetConversionByEvent(ctx, repository.GetConversionByEventParams{ProjectID: projectID, ExternalEventID: in.EventID}); err == nil {
-		return ProcessResult{Status: "duplicate"}, nil
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+
+	// Step 2: Occupy key in conversion_event_payments with NULL conversion_event_id.
+	rows, err := tq.InsertConversionPaymentKey(ctx, repository.InsertConversionPaymentKeyParams{
+		ProjectID:         projectID,
+		ExternalPaymentID: *in.ExternalPaymentID,
+		ConversionEventID: pgtype.Int8{},
+	})
+	if err != nil {
 		return ProcessResult{}, err
 	}
-	if _, err := tq.GetConversionByPayment(ctx, repository.GetConversionByPaymentParams{ProjectID: projectID, ExternalPaymentID: *in.ExternalPaymentID}); err == nil {
+	if rows == 0 {
 		return ProcessResult{Status: "duplicate"}, nil
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return ProcessResult{}, err
+	}
+
+	kind := "deposit"
+	if in.Kind != nil && *in.Kind != "" {
+		kind = *in.Kind
 	}
 
 	conv, err := tq.InsertConversion(ctx, repository.InsertConversionParams{
-		ProjectID: projectID, ExternalEventID: in.EventID, ExternalPaymentID: *in.ExternalPaymentID,
-		ExternalUserID: in.ExternalUserID, AttributionID: attr.ID,
-		AmountKopecks: *in.AmountKopecks, Currency: currency,
-		OccurredAt: repository.TimePtr(&in.OccurredAt),
+		ProjectID:         projectID,
+		ExternalEventID:   in.EventID,
+		ExternalPaymentID: *in.ExternalPaymentID,
+		ExternalUserID:    in.ExternalUserID,
+		AttributionID:     attr.ID,
+		AmountKopecks:     *in.AmountKopecks,
+		Currency:          currency,
+		OccurredAt:        repository.TimePtr(&in.OccurredAt),
+		Kind:              kind,
 	})
 	if err != nil {
+		return ProcessResult{}, err
+	}
+
+	if err := tq.SetConversionPaymentKeyEvent(ctx, repository.SetConversionPaymentKeyEventParams{
+		ProjectID:         projectID,
+		ExternalPaymentID: *in.ExternalPaymentID,
+		ConversionEventID: pgtype.Int8{Int64: conv.ID, Valid: true},
+	}); err != nil {
 		return ProcessResult{}, err
 	}
 
@@ -274,10 +299,15 @@ func (s *Service) processConfirmed(ctx context.Context, tq *repository.Queries, 
 			linkID = repository.UUIDPtr(&click.TrackingLinkID)
 		}
 	}
-	earningRow, err := tq.InsertCommissionEarning(ctx, repository.InsertCommissionEarningParams{
-		ConversionEventID: conv.ID, PartnerID: attrPartnerID, OfferID: attrOfferID,
-		TrackingLinkID: linkID, RateBps: access.RateBps,
-		AmountKopecks: earning, ExternalUserID: in.ExternalUserID,
+	earningRow, err := tq.InsertCommissionEarningWithCreatedAt(ctx, repository.InsertCommissionEarningWithCreatedAtParams{
+		ConversionEventID: conv.ID,
+		PartnerID:         attrPartnerID,
+		OfferID:           attrOfferID,
+		TrackingLinkID:    linkID,
+		RateBps:           access.RateBps,
+		AmountKopecks:     earning,
+		ExternalUserID:    in.ExternalUserID,
+		CreatedAt:         repository.TimePtr(&in.OccurredAt),
 	})
 	if err != nil {
 		return ProcessResult{}, err
@@ -329,6 +359,9 @@ func (s *Service) processReversed(ctx context.Context, tq *repository.Queries, p
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ProcessResult{Status: "ignored", Reason: "payment_not_found"}, nil
 		}
+		return ProcessResult{}, err
+	}
+	if _, err := tq.SetConversionReversed(ctx, conv.ID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return ProcessResult{}, err
 	}
 	earning, err := tq.GetEarningByConversion(ctx, conv.ID)

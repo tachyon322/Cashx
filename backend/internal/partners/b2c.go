@@ -37,7 +37,6 @@ func (s *Service) GetB2CReferrals(ctx context.Context, partnerID string, from, t
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	commissionPercent := int(profile.RevsharePercentBps / 100) // 4000 bps -> 40%
 	revshareBps := int(profile.RevsharePercentBps)
 
 	// $1 partner_id, then optional $n range bounds shared by both branches.
@@ -48,7 +47,7 @@ func (s *Service) GetB2CReferrals(ctx context.Context, partnerID string, from, t
 	query := `
 		WITH earliest AS (
 			SELECT DISTINCT ON (a.external_user_id)
-			       a.id, a.external_user_id, a.first_seen_at,
+			       a.id, a.external_user_id, a.first_seen_at, a.partner_id, a.offer_id,
 			       tl.id AS link_id, tl.name AS link_name, tl.type AS link_type
 			FROM external_user_attributions a
 			LEFT JOIN tracking_clicks tc ON tc.id = a.tracking_click_id
@@ -74,7 +73,8 @@ func (s *Service) GetB2CReferrals(ctx context.Context, partnerID string, from, t
 			       COALESCE(sum(ce.amount_kopecks), 0) AS deposits_sum
 			FROM conversion_events ce
 			JOIN external_user_attributions a ON a.id = ce.attribution_id
-			WHERE a.partner_id = $1`
+			WHERE a.partner_id = $1
+			  AND ce.reversed_at IS NULL`
 	if from != nil {
 		query += fmt.Sprintf(" AND ce.occurred_at >= $%d", argIdx)
 		args = append(args, *from)
@@ -85,14 +85,18 @@ func (s *Service) GetB2CReferrals(ctx context.Context, partnerID string, from, t
 		args = append(args, *to)
 		argIdx++
 	}
-	query += `
+	fallbackArgIdx := argIdx
+	args = append(args, revshareBps)
+	query += fmt.Sprintf(`
 			GROUP BY a.external_user_id
 		)
 		SELECT e.external_user_id, e.first_seen_at, e.link_id, e.link_name, e.link_type,
-		       COALESCE(d.deposits_count, 0), COALESCE(d.deposits_sum, 0)
+		       COALESCE(d.deposits_count, 0), COALESCE(d.deposits_sum, 0),
+		       COALESCE(poa.rate_bps, $%d)::int AS effective_rate_bps
 		FROM earliest e
 		LEFT JOIN deposits d ON d.external_user_id = e.external_user_id
-		ORDER BY e.first_seen_at DESC`
+		LEFT JOIN partner_offer_accesses poa ON poa.partner_id = e.partner_id AND poa.offer_id = e.offer_id AND poa.status = 'active'
+		ORDER BY e.first_seen_at DESC`, fallbackArgIdx)
 
 	rows, err := s.Pool.Query(ctx, query, args...)
 	if err != nil {
@@ -108,8 +112,9 @@ func (s *Service) GetB2CReferrals(ctx context.Context, partnerID string, from, t
 			linkID, linkName, linkType *string
 			depositsCount              int64
 			depositsSum                int64
+			effectiveRateBps           int
 		)
-		if err := rows.Scan(&externalUserID, &firstSeenAt, &linkID, &linkName, &linkType, &depositsCount, &depositsSum); err != nil {
+		if err := rows.Scan(&externalUserID, &firstSeenAt, &linkID, &linkName, &linkType, &depositsCount, &depositsSum, &effectiveRateBps); err != nil {
 			return 0, 0, nil, err
 		}
 		kind := "registration"
@@ -134,8 +139,8 @@ func (s *Service) GetB2CReferrals(ctx context.Context, partnerID string, from, t
 		}
 		it.DepositsCount = depositsCount
 		it.DepositsSum = depositsSum
-		it.Income = depositsSum * int64(revshareBps) / 10000
-		it.CommissionPercent = commissionPercent
+		it.CommissionPercent = effectiveRateBps / 100
+		it.Income = depositsSum * int64(effectiveRateBps) / 10000
 		items = append(items, it)
 		sum += it.Income
 	}

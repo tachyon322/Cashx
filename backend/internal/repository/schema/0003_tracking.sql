@@ -43,6 +43,21 @@ CREATE TABLE incoming_events (
 CREATE INDEX incoming_events_project_event_idx ON incoming_events(project_id, external_event_id);
 CREATE INDEX incoming_events_project_received_idx ON incoming_events(project_id, received_at);
 
+CREATE TABLE incoming_event_keys (
+    project_id        uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    external_event_id text NOT NULL,
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (project_id, external_event_id)
+);
+
+CREATE TABLE conversion_event_payments (
+    project_id           uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    external_payment_id  text NOT NULL,
+    conversion_event_id  bigint,
+    created_at           timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (project_id, external_payment_id)
+);
+
 CREATE TABLE conversion_events (
     id                 bigint GENERATED ALWAYS AS IDENTITY,
     project_id         uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -52,8 +67,10 @@ CREATE TABLE conversion_events (
     attribution_id     bigint NOT NULL REFERENCES external_user_attributions(id) ON DELETE RESTRICT,
     amount_kopecks     bigint NOT NULL,
     currency           text NOT NULL DEFAULT 'RUB',
+    kind               text NOT NULL DEFAULT 'deposit',
     occurred_at        timestamptz NOT NULL,
     processing_note    text,
+    reversed_at        timestamptz,
     created_at         timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);
