@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react'
 import { useAuth } from '../../auth/AuthContext'
+import { usePublicBranding } from '../../api/queries'
 import { cx } from '../../lib/cx'
 
 interface NavItem {
@@ -51,7 +52,7 @@ const ADMIN_NAV: readonly NavItem[] = [
   { to: '/admin/audit', label: 'Аудит', icon: ScrollText },
 ]
 
-function SupportCard() {
+function SupportCard({ telegramUrl }: { telegramUrl?: string | null }) {
   return (
     <div className="rounded-xl border border-[rgba(168,85,247,0.18)] bg-[#0f0e1e] p-3">
       <div className="flex items-start justify-between">
@@ -63,9 +64,16 @@ function SupportCard() {
           <Headphones size={14} />
         </span>
       </div>
-      <button className="relative isolate mt-3 inline-flex w-full items-center justify-center overflow-hidden rounded-md border border-white/10 bg-white/[0.06] px-3 py-2 text-[12px] font-semibold text-muted transition-[background-color,border-color,color,box-shadow,transform] duration-150 hover:bg-white/[0.10] hover:text-text active:btn-volume-pressed active:translate-y-px btn-volume-ghost btn-side-gradient">
-        <span className="relative z-[1]">Написать</span>
-      </button>
+      {telegramUrl ? (
+        <a
+          href={telegramUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="relative isolate mt-3 inline-flex w-full items-center justify-center overflow-hidden rounded-md border border-white/10 bg-white/[0.06] px-3 py-2 text-[12px] font-semibold text-muted transition-[background-color,border-color,color,box-shadow,transform] duration-150 hover:bg-white/[0.10] hover:text-text active:btn-volume-pressed active:translate-y-px btn-volume-ghost btn-side-gradient"
+        >
+          <span className="relative z-[1]">Написать</span>
+        </a>
+      ) : null}
     </div>
   )
 }
@@ -74,6 +82,7 @@ void SupportCard
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user } = useAuth()
+  const { data: branding } = usePublicBranding()
   const staffRoles = user?.staff?.roles ?? []
   const canSee = (item: NavItem) =>
     !item.roles || item.roles.length === 0 || staffRoles.includes('superadmin') || item.roles.some((r) => staffRoles.includes(r))
@@ -100,8 +109,14 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     >
       <div className="flex items-center justify-between px-2 pb-5 pt-0.5">
         <NavLink to="/" className="flex items-center gap-2 font-display text-[22px] font-bold tracking-[0.02em] text-text" onClick={onClose}>
-          <span className="bg-gradient-to-r from-white to-[#d8b4fe] bg-clip-text text-transparent">Cashx</span>
-          <span className="bg-gradient-to-r from-violet-bright to-violet bg-clip-text font-black text-transparent">Pay</span>
+          {branding?.avatar_url ? (
+            <img src={branding.avatar_url} alt="" className="h-7 w-7 shrink-0 rounded-full object-cover" />
+          ) : (
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet to-violet-bright text-[12px] font-black text-white">
+              {(branding?.name ?? 'Cashx').slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <span className="truncate">{branding?.name ?? 'Cashx Pay'}</span>
           <span className="h-2 w-2 rounded-full bg-violet shadow-[0_0_12px_rgba(168,85,247,0.8)]" />
         </NavLink>
         <button
@@ -142,11 +157,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           ))}
         </nav>
 
-        {/* {showExtra && (
+        {showExtra && (
           <div className="flex flex-col gap-3 pt-2">
-            <SupportCard />
+            <SupportCard telegramUrl={branding?.telegram_url} />
           </div>
-        )} */}
+        )}
       </div>
     </aside>
   )

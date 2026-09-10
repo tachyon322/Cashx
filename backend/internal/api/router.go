@@ -31,7 +31,7 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 	})
 
 	// Public (no session): platform branding for cabinet + login page.
-	r.Get("/api/v1/public/branding", s.PublicBranding)
+	r.Get("/api/v1/public/branding", s.PublicBrandingGet)
 
 	w := &gen.ServerInterfaceWrapper{Handler: s}
 	r.Route("/api/v1", func(r chi.Router) {

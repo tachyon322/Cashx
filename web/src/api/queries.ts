@@ -603,6 +603,23 @@ export function useAdminAnnouncements() {
   })
 }
 
+/* --- Публичный брендинг платформы (кабинет партнёра, страница входа) --- */
+
+export interface PlatformBranding {
+  name: string
+  telegram_url?: string | null
+  avatar_url?: string | null
+}
+
+export function usePublicBranding() {
+  return useQuery({
+    queryKey: ['public', 'branding'],
+    queryFn: () => unwrap(api.GET('/public/branding')),
+    retry: 1,
+    staleTime: 5 * 60_000,
+  })
+}
+
 export function useAdminBranding() {
   return useQuery({
     queryKey: ['admin', 'branding'],

@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { AlertCircle } from 'lucide-react'
 import { signin } from '../../api/auth'
 import { ApiRequestError } from '../../api/client'
-import { useMe } from '../../api/queries'
+import { useMe, usePublicBranding } from '../../api/queries'
 import { Button } from '../../components/Button'
 import { Field } from '../../components/Field'
 import { Input } from '../../components/Input'
@@ -13,6 +13,7 @@ import { Input } from '../../components/Input'
 export function LoginPage() {
   const navigate = useNavigate()
   const me = useMe()
+  const { data: branding } = usePublicBranding()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -42,7 +43,8 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-bg bg-hero-glow p-4">
       <div className="flex w-full max-w-[420px] flex-col gap-4 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
         <div className="flex items-center justify-center gap-3 font-display text-[24px] font-bold">
-          CashX
+          {branding?.avatar_url ? <img src={branding.avatar_url} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" /> : null}
+          {branding?.name ?? 'CashX'}
           <span className="h-2 w-2 rounded-full bg-violet shadow-[0_0_14px_rgba(168,85,247,0.9)]" />
         </div>
         <h1 className="text-center text-[19px] font-bold">Вход для партнёров</h1>

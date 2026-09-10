@@ -1,7 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createBrowserRouter, Navigate, Outlet, RouterProvider } from 'react-router-dom'
+import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { AuthProvider, useAuth } from './auth/AuthContext'
+import { usePublicBranding } from './api/queries'
 import { AppLayout, PartnerLayout } from './components/layout/AppLayout'
 import { AffiliateRefTracker } from './components/AffiliateRefTracker'
 import { ToastProvider } from './components/Toast'
@@ -57,6 +59,18 @@ function SplashScreen() {
   )
 }
 
+/** Обновляем favicon из брендинга платформы (автарка из button-URL). */
+function BrandingFavicon() {
+  const { data: branding } = usePublicBranding()
+  useEffect(() => {
+    if (branding?.avatar_url) {
+      const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+      if (link) link.href = branding.avatar_url
+    }
+  }, [branding?.avatar_url])
+  return null
+}
+
 /** Корневой гейт: splash только на первичной загрузке /auth/me (pending),
  *  в состоянии ошибки (429/500) показываем маршруты — иначе пользователь
  *  навсегда завис бы на splash при недоступном/рейт-лимиченном API. */
@@ -65,6 +79,7 @@ function AppGate() {
   if (isPending) return <SplashScreen />
   return (
     <>
+      <BrandingFavicon />
       <AffiliateRefTracker />
       <Outlet />
     </>
