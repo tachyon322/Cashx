@@ -43,6 +43,14 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 			r.Post("/auth/password-reset/confirm", w.AuthPasswordResetConfirm)
 		})
 
+		// Public (no session required): превью бонуса за ref-код на публичной
+		// странице регистрации. Гостю нужен доступ — иначе 401 на /register
+		// разлогинивает и редиректит на /login (см. useRegistrationBonus).
+		r.Group(func(r chi.Router) {
+			r.Use(rl("registration_bonus", 30, platform.RemoteIPKey))
+			r.Get("/cabinet/registration-bonus", s.CabinetRegistrationBonus)
+		})
+
 		// Auth: current user (session required) — /auth/me не рейт-лимитим:
 		// read-only проверка сессии на каждой загрузке SPA.
 		r.Group(func(r chi.Router) {
@@ -85,7 +93,6 @@ func (s *Server) Router(rdb *redis.Client) http.Handler {
 			r.Get("/cabinet/b2c-referrals", s.CabinetB2CReferrals)
 			r.Get("/cabinet/b2c-referrals.csv", s.CabinetB2CReferralsCSV)
 			r.Get("/cabinet/config", s.CabinetConfig)
-			r.Get("/cabinet/registration-bonus", s.CabinetRegistrationBonus)
 			r.Post("/cabinet/attrib", s.CabinetAttrib)
 			r.Get("/cabinet/leaderboard", s.CabinetLeaderboard)
 			r.Get("/cabinet/transactions", s.CabinetTransactions)

@@ -975,7 +975,7 @@ func (q *Queries) ListPartnerAccessesWithOffer(ctx context.Context, partnerID st
 }
 
 const listSourceGroupsByPartner = `-- name: ListSourceGroupsByPartner :many
-SELECT id, partner_id, name, comment, legacy_kazik_group_id, created_at, updated_at FROM source_groups WHERE partner_id = $1 ORDER BY name
+SELECT id, partner_id, name, comment, legacy_kazik_group_id, created_at, updated_at FROM source_groups WHERE partner_id = $1 ORDER BY created_at DESC, name
 `
 
 func (q *Queries) ListSourceGroupsByPartner(ctx context.Context, partnerID string) ([]SourceGroup, error) {
@@ -1011,7 +1011,7 @@ SELECT tl.id, tl.partner_offer_access_id, tl.code, tl.name, tl.comment, tl.group
 FROM tracking_links tl
 LEFT JOIN source_groups g ON g.id = tl.group_id
 WHERE tl.partner_offer_access_id = $1
-ORDER BY tl.is_default DESC, tl.created_at
+ORDER BY tl.is_default DESC, tl.created_at DESC
 `
 
 type ListTrackingLinksByAccessIDRow struct {

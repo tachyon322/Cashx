@@ -118,7 +118,7 @@ SELECT tl.*, g.name AS group_name
 FROM tracking_links tl
 LEFT JOIN source_groups g ON g.id = tl.group_id
 WHERE tl.partner_offer_access_id = $1
-ORDER BY tl.is_default DESC, tl.created_at;
+ORDER BY tl.is_default DESC, tl.created_at DESC;
 
 -- name: ListTrackingLinksByPartnerWithOffer :many
 -- All tracking links of a partner across every offer they have access to,
@@ -164,7 +164,7 @@ INSERT INTO source_groups (partner_id, name, comment)
 VALUES ($1, $2, $3) RETURNING *;
 
 -- name: ListSourceGroupsByPartner :many
-SELECT * FROM source_groups WHERE partner_id = $1 ORDER BY name;
+SELECT * FROM source_groups WHERE partner_id = $1 ORDER BY created_at DESC, name;
 
 -- name: GetSourceGroupByID :one
 SELECT * FROM source_groups WHERE id = $1;

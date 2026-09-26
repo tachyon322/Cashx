@@ -234,17 +234,20 @@ export function useCabinetConfig() {
 export function useRegistrationBonus(ref?: string | null) {
   return useQuery({
     queryKey: ['registration-bonus', ref ?? ''],
-    queryFn: () =>
-      guarded(async () => {
-        const url = ref ? `/api/v1/cabinet/registration-bonus?ref=${encodeURIComponent(ref)}` : '/api/v1/cabinet/registration-bonus'
-        const res = await fetch(url, { credentials: 'include' })
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}))
-          throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
-        }
-        return (await res.json()) as { bonus: number }
-      }),
-    enabled: true,
+    // Публичный эндпоинт: без `guarded`, иначе 401 отсюда разлогинивал бы
+    // гостя на публичной странице регистрации. Запрос только при наличии ref.
+    queryFn: async () => {
+      const url = ref
+        ? `/api/v1/cabinet/registration-bonus?ref=${encodeURIComponent(ref)}`
+        : '/api/v1/cabinet/registration-bonus'
+      const res = await fetch(url, { credentials: 'include' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new ApiRequestError(res.status, (body as { message?: string }).message ?? `Ошибка ${res.status}`)
+      }
+      return (await res.json()) as { bonus: number }
+    },
+    enabled: Boolean(ref),
     retry: 1,
   })
 }
