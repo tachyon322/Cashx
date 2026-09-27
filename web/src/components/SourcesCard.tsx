@@ -185,18 +185,6 @@ export function SourcesCard({ offerId }: { offerId: string }) {
       title={<span className="text-[12px] font-bold uppercase tracking-[0.08em]">Источники трафика</span>}
       actions={
         <>
-          <Select
-            value={sort}
-            onChange={(event) => setSort(event.target.value as SourceSort)}
-            className="h-8 w-[168px] rounded-md border-[rgba(168,85,247,0.28)] bg-surface-0 text-[12px]"
-            aria-label="Сортировка источников"
-          >
-            {SOURCE_SORTS.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
           <Button
             variant="secondary"
             size="sm"
@@ -216,13 +204,31 @@ export function SourcesCard({ offerId }: { offerId: string }) {
       {sourcesQuery.isLoading ? (
         <Skeleton style={{ height: 160 }} />
       ) : (
-        <Table
-          columns={columns}
-          rows={sortedSources}
-          rowKey={(row) => row.id ?? ''}
-          emptyTitle="Источников пока нет"
-          emptyHint="Создайте отдельные ссылки под каждый канал — Telegram, YouTube, рассылки"
-        />
+        <>
+          {sources.length > 0 && (
+            <div className="flex justify-end">
+              <Select
+                value={sort}
+                onChange={(event) => setSort(event.target.value as SourceSort)}
+                className="h-8 w-[168px] shrink-0 rounded-md border-[rgba(168,85,247,0.28)] bg-surface-0 text-[12px]"
+                aria-label="Сортировка источников"
+              >
+                {SOURCE_SORTS.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+          <Table
+            columns={columns}
+            rows={sortedSources}
+            rowKey={(row) => row.id ?? ''}
+            emptyTitle="Источников пока нет"
+            emptyHint="Создайте отдельные ссылки под каждый канал — Telegram, YouTube, рассылки"
+          />
+        </>
       )}
 
       <SourceModal
