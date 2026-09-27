@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { FolderCog, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { components } from '../api/schema'
 import { useDeleteSource, useSourceGroups, useSources } from '../api/queries'
@@ -7,6 +7,7 @@ import { Button } from './Button'
 import { Card } from './Card'
 import { CopyButton } from './CopyButton'
 import { GroupsModal } from './GroupsModal'
+import { Select } from './Select'
 import { Skeleton } from './Skeleton'
 import { SourceModal } from './SourceModal'
 import { Table } from './Table'
@@ -16,6 +17,20 @@ import { formatNumber, formatRubles } from '../lib/format'
 import { sourceErrorMessage } from '../lib/sourceErrors'
 
 type Source = components['schemas']['Source']
+
+type SourceSort = 'new' | 'old' | 'income'
+
+const SOURCE_SORTS = [
+  { key: 'new', label: 'Сначала новые' },
+  { key: 'old', label: 'Сначала старые' },
+  { key: 'income', label: 'Самые прибыльные' },
+] as const satisfies readonly { key: SourceSort; label: string }[]
+
+/** created_at приходит из API опциональным — без него элемент уходит в конец. */
+function createdAtMs(source: Source): number {
+  const parsed = source.created_at ? Date.parse(source.created_at) : NaN
+  return Number.isNaN(parsed) ? 0 : parsed
+}
 
 const ICON_BUTTON =
   'inline-flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-muted transition-colors duration-150 hover:bg-surface-hover hover:text-text'
@@ -29,9 +44,22 @@ export function SourcesCard({ offerId }: { offerId: string }) {
   const [sourceModalOpen, setSourceModalOpen] = useState(false)
   const [editingSource, setEditingSource] = useState<Source | null>(null)
   const [groupsOpen, setGroupsOpen] = useState(false)
+  const [sort, setSort] = useState<SourceSort>('new')
 
   const sources = sourcesQuery.data?.items ?? []
   const groups = groupsQuery.data?.items ?? []
+
+  // Порядок полностью задаётся сортировкой: правило «Основной всегда первый»
+  // (ORDER BY is_default DESC на бэке) сознательно перекрывается здесь.
+  const sortedSources = useMemo(() => {
+    const rows = [...sources]
+    if (sort === 'new') return rows.sort((a, b) => createdAtMs(b) - createdAtMs(a))
+    if (sort === 'old') return rows.sort((a, b) => createdAtMs(a) - createdAtMs(b))
+    return rows.sort(
+      (a, b) =>
+        (b.totals?.income_kopecks ?? 0) - (a.totals?.income_kopecks ?? 0) || createdAtMs(b) - createdAtMs(a),
+    )
+  }, [sources, sort])
 
   const openCreate = () => {
     setEditingSource(null)
@@ -157,6 +185,18 @@ export function SourcesCard({ offerId }: { offerId: string }) {
       title={<span className="text-[12px] font-bold uppercase tracking-[0.08em]">Источники трафика</span>}
       actions={
         <>
+          <Select
+            value={sort}
+            onChange={(event) => setSort(event.target.value as SourceSort)}
+            className="h-8 w-[168px] rounded-md border-[rgba(168,85,247,0.28)] bg-surface-0 text-[12px]"
+            aria-label="Сортировка источников"
+          >
+            {SOURCE_SORTS.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
           <Button
             variant="secondary"
             size="sm"
@@ -178,7 +218,7 @@ export function SourcesCard({ offerId }: { offerId: string }) {
       ) : (
         <Table
           columns={columns}
-          rows={sources}
+          rows={sortedSources}
           rowKey={(row) => row.id ?? ''}
           emptyTitle="Источников пока нет"
           emptyHint="Создайте отдельные ссылки под каждый канал — Telegram, YouTube, рассылки"
