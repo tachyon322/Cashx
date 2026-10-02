@@ -56,14 +56,21 @@ func Daily(ctx context.Context, q *repository.Queries, partnerID string, p Perio
 	if err != nil {
 		return nil, err
 	}
+	// One row per (offer, day): a partner joined to several offers (one per
+	// project) has several rows for the same day, so they must be summed —
+	// overwriting kept a random offer's row (row order within a day is not
+	// guaranteed) and the dashboard flickered between offers.
 	byDay := make(map[string]DayStats, len(rows))
 	for _, r := range rows {
 		day := r.Day.Time.In(MSK).Format("2006-01-02")
-		byDay[day] = DayStats{
-			Date: day, Clicks: int64(r.Clicks), UniqueClicks: int64(r.UniqueClicks),
-			Registrations: int64(r.Registrations),
-			FirstPayments: int64(r.FirstPayments), IncomeKopecks: r.IncomeKopecks,
-		}
+		v := byDay[day]
+		v.Date = day
+		v.Clicks += int64(r.Clicks)
+		v.UniqueClicks += int64(r.UniqueClicks)
+		v.Registrations += int64(r.Registrations)
+		v.FirstPayments += int64(r.FirstPayments)
+		v.IncomeKopecks += r.IncomeKopecks
+		byDay[day] = v
 	}
 	out := make([]DayStats, 0, 31)
 	for d := p.From; !d.After(p.To); d = d.AddDate(0, 0, 1) {
