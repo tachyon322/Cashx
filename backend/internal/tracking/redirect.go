@@ -37,9 +37,9 @@ func NewRedirectHandler(d RedirectDeps) http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(rl)
 		handle := func(w http.ResponseWriter, req *http.Request) {
-			code := strings.ToUpper(chi.URLParam(req, "code"))
+			code := normalizeCode(chi.URLParam(req, "code"))
 			if code == "" {
-				code = strings.ToUpper(req.PathValue("code"))
+				code = normalizeCode(req.PathValue("code"))
 			}
 			if code == "" || len(code) > 32 {
 				http.Redirect(w, req, d.Cfg.FrontendOrigin, http.StatusFound)
@@ -83,3 +83,11 @@ func NewRedirectHandler(d RedirectDeps) http.Handler {
 }
 
 func noopMiddleware(h http.Handler) http.Handler { return h }
+
+// normalizeCode cleans a tracking code coming from the URL path before the DB
+// lookup. Messengers and social networks (VK, Telegram) often keep a trailing
+// space glued to the link, so "LITGWIN%20" arrives as "LITGWIN " and would
+// otherwise miss the link and fall back to the CashX landing page.
+func normalizeCode(raw string) string {
+	return strings.ToUpper(strings.TrimSpace(raw))
+}
