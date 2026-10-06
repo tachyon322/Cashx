@@ -18,10 +18,10 @@ import (
 
 // RedirectDeps are the redirect service dependencies.
 type RedirectDeps struct {
-	Cfg             platform.Config
-	Log             *slog.Logger
-	Pool            *pgxpool.Pool
-	Redis           *redis.Client
+	Cfg   platform.Config
+	Log   *slog.Logger
+	Pool  *pgxpool.Pool
+	Redis *redis.Client
 }
 
 // NewRedirectHandler builds the redirect router.
@@ -37,28 +37,35 @@ func NewRedirectHandler(d RedirectDeps) http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(rl)
 		handle := func(w http.ResponseWriter, req *http.Request) {
+			// fallback is where a click goes when it cannot be resolved.
+			// It must never be the CashX web (партнёрка): a click stranded
+			// there is lost conversion, so production points it at the casino.
+			fallback := strings.TrimSpace(d.Cfg.RedirectFallback)
+			if fallback == "" {
+				fallback = d.Cfg.FrontendOrigin
+			}
 			code := normalizeCode(chi.URLParam(req, "code"))
 			if code == "" {
 				code = normalizeCode(req.PathValue("code"))
 			}
 			if code == "" || len(code) > 32 {
-				http.Redirect(w, req, d.Cfg.FrontendOrigin, http.StatusFound)
+				http.Redirect(w, req, fallback, http.StatusFound)
 				return
 			}
 			result, err := RecordClick(req.Context(), d.Pool, code, platform.RemoteIPKey(req), req.UserAgent(), req.Referer())
 			if err != nil {
 				if errors.Is(err, platform.ErrNotFound) {
-					http.Redirect(w, req, d.Cfg.FrontendOrigin, http.StatusFound)
+					http.Redirect(w, req, fallback, http.StatusFound)
 					return
 				}
 				d.Log.Error("record click", "err", err)
-				http.Redirect(w, req, d.Cfg.FrontendOrigin, http.StatusFound)
+				http.Redirect(w, req, fallback, http.StatusFound)
 				return
 			}
 			token, err := SignClickToken(d.Cfg.ClickTokenSecret, d.Cfg.ClickTokenTTL, result.ClickID)
 			if err != nil {
 				d.Log.Error("sign click token", "err", err)
-				http.Redirect(w, req, d.Cfg.FrontendOrigin, http.StatusFound)
+				http.Redirect(w, req, fallback, http.StatusFound)
 				return
 			}
 			dest, err := url.Parse(result.Destination)

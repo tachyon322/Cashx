@@ -16,17 +16,22 @@ import (
 // чувствительные параметры (секреты, доступы к БД, пароль админа) обязаны
 // быть заданы явно — дефолтов у них нет, см. validate().
 type Config struct {
-	Env            string
-	Port           int
-	DatabaseURL    string
+	Env              string
+	Port             int
+	DatabaseURL      string
 	AdminDatabaseURL string
-	RedisAddr      string
-	SessionTTL     time.Duration
-	SessionCookie  string
-	SessionSecret  string
-	FrontendOrigin string
-	APIOrigin      string
-	RedirectBase   string
+	RedisAddr        string
+	SessionTTL       time.Duration
+	SessionCookie    string
+	SessionSecret    string
+	FrontendOrigin   string
+	APIOrigin        string
+	RedirectBase     string
+	// RedirectFallback is where the redirect service sends a click it could
+	// not resolve (unknown/inactive code, DB or signing failure). Empty falls
+	// back to FrontendOrigin; production points it at the casino landing so a
+	// broken click never strands the user on the CashX web (партнёрка).
+	RedirectFallback string
 	// IntegrationKeySecret signs clickTokens for the redirect service.
 	ClickTokenSecret string
 	ClickTokenTTL    time.Duration
@@ -89,6 +94,7 @@ func Load() (Config, error) {
 		FrontendOrigin:   getenv("CASHX_FRONTEND_ORIGIN", "http://localhost:3000"),
 		APIOrigin:        getenv("CASHX_API_ORIGIN", "http://localhost:8080"),
 		RedirectBase:     getenv("CASHX_REDIRECT_BASE", "http://localhost:8081"),
+		RedirectFallback: getenv("CASHX_REDIRECT_FALLBACK_ORIGIN", ""),
 		ClickTokenTTL:    getenvDuration("CASHX_CLICK_TOKEN_TTL", 90*24*time.Hour),
 		SMTPFrom:         getenv("CASHX_SMTP_FROM", "no-reply@cashx.local"),
 		WebOrigin:        getenv("CASHX_WEB_ORIGIN", "http://localhost:3000"),
@@ -100,12 +106,12 @@ func Load() (Config, error) {
 		SMTPPassword:     getenv("CASHX_SMTP_PASSWORD", ""),
 
 		// Чувствительные параметры: только из окружения, без дефолтов.
-		DatabaseURL:                getenv("CASHX_DATABASE_URL", ""),
-		AdminDatabaseURL:           getenv("CASHX_ADMIN_DATABASE_URL", ""),
-		SessionSecret:              getenv("CASHX_SESSION_SECRET", ""),
-		ClickTokenSecret:           getenv("CASHX_CLICK_TOKEN_SECRET", ""),
+		DatabaseURL:                 getenv("CASHX_DATABASE_URL", ""),
+		AdminDatabaseURL:            getenv("CASHX_ADMIN_DATABASE_URL", ""),
+		SessionSecret:               getenv("CASHX_SESSION_SECRET", ""),
+		ClickTokenSecret:            getenv("CASHX_CLICK_TOKEN_SECRET", ""),
 		IntegrationKeyEncryptionKey: getenv("CASHX_INTEGRATION_KEY_ENCRYPTION_KEY", ""),
-		AdminPassword:              getenv("CASHX_ADMIN_PASSWORD", ""),
+		AdminPassword:               getenv("CASHX_ADMIN_PASSWORD", ""),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -117,12 +123,12 @@ func Load() (Config, error) {
 // validate проверяет, что все чувствительные параметры заданы.
 func (c Config) validate() error {
 	required := map[string]string{
-		"CASHX_DATABASE_URL":                  c.DatabaseURL,
-		"CASHX_ADMIN_DATABASE_URL":            c.AdminDatabaseURL,
-		"CASHX_SESSION_SECRET":                c.SessionSecret,
-		"CASHX_CLICK_TOKEN_SECRET":            c.ClickTokenSecret,
+		"CASHX_DATABASE_URL":                   c.DatabaseURL,
+		"CASHX_ADMIN_DATABASE_URL":             c.AdminDatabaseURL,
+		"CASHX_SESSION_SECRET":                 c.SessionSecret,
+		"CASHX_CLICK_TOKEN_SECRET":             c.ClickTokenSecret,
 		"CASHX_INTEGRATION_KEY_ENCRYPTION_KEY": c.IntegrationKeyEncryptionKey,
-		"CASHX_ADMIN_PASSWORD":                c.AdminPassword,
+		"CASHX_ADMIN_PASSWORD":                 c.AdminPassword,
 	}
 	var missing []string
 	for key, value := range required {
